@@ -1,13 +1,12 @@
 """DeepSeek(Anthropic 兼容端点)网页搜索实现。
 
-走 Anthropic 服务端 web_search 工具:模型在服务端自动执行搜索、把结果
-回灌后给出总结,一次 messages.create 即可拿到最终答案与来源链接,调用
-方无需(也无法)手动回传 tool_result。返回的 message.content 为 block
-序列,本模块从中提取最终答案(最后一个 text block)与全部来源
-(web_search_tool_result 中的条目)。
+走 Anthropic 服务端 web_search 工具:模型在服务端自动执行搜索、把结果回灌后给出总结。
+返回的 message.content 为 block序列,
+本模块从中提取最终答案(最后一个 text block)与全部来源(web_search_tool_result 中的条目)。
 
 对外暴露:
-  DeepSeekSearcher — 基于 DeepSeek + web_search 工具的搜索器
+  DeepSeekSearcher    — 基于 DeepSeek + web_search 工具的搜索器
+  deepseek_web_search — LangChain @tool,供 agent 自主调用
 """
 
 from __future__ import annotations
@@ -16,8 +15,9 @@ import os
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from langchain_core.tools import tool
 
-from search_tools.base import SearchResponse, Source
+from .base import SearchResponse, Source, format_for_agent
 
 load_dotenv()
 
@@ -30,6 +30,8 @@ _WEB_SEARCH_TOOL = {
     "type": "web_search_20260209",
     "name": "web_search",
 }
+
+_default: DeepSeekSearcher | None = None
 
 
 class DeepSeekSearcher:
@@ -67,6 +69,14 @@ class DeepSeekSearcher:
         return _parse_message(query, message)
 
 
+def _get_default() -> DeepSeekSearcher:
+    """返回模块级单例,复用 Anthropic 客户端连接池。"""
+    global _default
+    if _default is None:
+        _default = DeepSeekSearcher()
+    return _default
+
+
 def _parse_message(query: str, message) -> SearchResponse:
     """从 message.content 提取最终答案与来源。"""
     sources: list[Source] = []
@@ -90,3 +100,9 @@ def _parse_message(query: str, message) -> SearchResponse:
                     )
                 )
     return SearchResponse(query=query, sources=sources, answer=answer)
+
+
+@tool
+def deepseek_web_search(query: str) -> str:
+    """联网搜索:用 DeepSeek(带 Anthropic 服务端 web_search 工具)对 query 检索,返回总结文本与逐条来源链接。"""
+    return format_for_agent(_get_default().search(query))

@@ -1,0 +1,32 @@
+[project]
+name = "company-report-kit"
+version = "0.1.0"
+description = "上市公司深度研究报告生成系统：澄清、计划、采集、证据、建模、分析、写作、质检、导出"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.120.2",
+    "httpx",
+    "langchain",
+    "langchain-anthropic",
+    "langchain-community",
+    "langchain-core>=1.5.2",
+    "langchain-google-genai",
+    "langchain-openai",
+    "langgraph",
+    "langgraph-cli[inmem]",
+    "python-dotenv",
+    "rich",
+    "tavily-python>=0.7.26",
+]
+
+[project.optional-dependencies]
+dev = ["mypy>=1.11.1", "ruff>=0.6.1", "pytest"]
+
+[build-system]
+requires = ["setuptools>=73.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
