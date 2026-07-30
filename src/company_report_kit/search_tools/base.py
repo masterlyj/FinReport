@@ -24,6 +24,8 @@ class Source:
     url: str
     title: str | None = None
     page_age: str | None = None
+    content: str | None = None
+    raw_content: str | None = None
 
 
 @dataclass
@@ -50,13 +52,13 @@ class WebSearcher(Protocol):
 
 
 def format_for_agent(response: SearchResponse) -> str:
-    """把搜索结果格式化成供 agent 阅读的文本(总结 + 逐条来源)。
+    """把搜索结果格式化成供 agent 阅读的文本(总结 + 逐条来源,来源可附片段)。
 
     Args:
         response: 搜索工具返回的统一结果。
 
     Returns:
-        总结文本在前,其后列出全部来源;无内容时返回空串。
+        总结文本在前,其后列出全部来源(有片段则附摘要);无内容时返回空串。
     """
     parts: list[str] = []
     if response.answer:
@@ -69,4 +71,8 @@ def format_for_agent(response: SearchResponse) -> str:
             # "标题 — url",无标题时只留 url,避免行首多余分隔符。
             line = f"{title} — {s.url}" if title else s.url
             parts.append(f"{i}. {line}")
+            if s.content:
+                # 压缩多余空白/换行成单行,给 agent 原始材料(DeepSeek 无明文片段,不输出)。
+                snippet = " ".join(s.content.split())
+                parts.append(f"   {snippet}")
     return "\n".join(parts) if parts else ""
