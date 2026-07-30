@@ -53,7 +53,7 @@ async def clarify_with_user(
 
 async def write_brief(
     state: AgentState, config: RunnableConfig
-) -> Command[Literal["supervisor"]]:
+) -> Command[Literal["research_supervisor"]]:
     """生成研究简报并暂停等待人工确认.
 
     这是 PRD 第 5 节"研究计划生成与人工确认"环节的载体（合并后由 brief 承担）.
@@ -76,7 +76,7 @@ async def write_brief(
     _log("write_brief", f"用户决策={user_decision}")
     # 阶段 1 默认信任用户确认，直接放行；阶段 2 加分支处理拒绝回退.
     return Command(
-        goto="supervisor",
+        goto="research_supervisor",
         update={"research_brief": placeholder_brief},
     )
 
@@ -97,13 +97,14 @@ async def supervisor(
 
 async def supervisor_tools(
     state: AgentState, config: RunnableConfig
-) -> Command[Literal["supervisor", "final_report_generation", "__end__"]]:
+) -> Command[Literal["supervisor", "__end__"]]:
     """supervisor_tools 占位：处理 supervisor 的工具调用（阶段 3 接入真实工具）.
 
     原项目此节点处理三类工具调用：
       1. think_tool - supervisor 反思，循环回 supervisor
       2. ConductResearch - 派发 researcher 子图，循环回 supervisor
-      3. ResearchComplete - 标记研究结束，跳转 final_report_generation
+      3. ResearchComplete - 标记研究结束，跳 END 结束子图，
+         由主图边 research_supervisor→final_report_generation 接管进入报告生成
 
     阶段 1 不接工具调用，直接结束研究阶段进入报告生成，
     保留此节点是为了让图拓扑对齐原项目的 supervisor ⇄ supervisor_tools 循环，
@@ -114,7 +115,8 @@ async def supervisor_tools(
     _log("supervisor_tools", f"iterations={iterations} max={configurable.max_researcher_iterations}")
     # 占位：阶段 1 默认研究已完成，直接进入报告生成.
     # 阶段 3 在此处理 ConductResearch/think_tool/ResearchComplete 三类工具调用.
-    return Command(goto="final_report_generation")
+    # 跳 END 结束子图，主图边 research_supervisor→final_report_generation 接管.
+    return Command(goto="__end__")
 
 
 async def final_report_generation(
@@ -133,4 +135,3 @@ async def final_report_generation(
             "messages": [AIMessage(content=placeholder_report)],
         },
     )
-
