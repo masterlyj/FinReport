@@ -1,7 +1,8 @@
 """Company Report Kit 的可配置项定义.
 
-对齐 open_deep_research 的 Configuration schema，只暴露阶段 1 骨架要用的字段.
-后续阶段接入研究子图、MCP、搜索 API 时，再在此类追加字段，避免一次性引入未使用配置.
+统一走 OpenAI 兼容格式：所有 endpoint 用 ChatOpenAI 调用，
+通过 api_base + api_key + model 三件套指向具体服务，
+不依赖 provider 专属类（如 ChatDeepSeek），天然兼容官方/中转/自建代理.
 """
 
 from langchain_core.runnables import RunnableConfig
@@ -15,18 +16,43 @@ class Configuration(BaseModel):
     "Manage Assistants" 面板可视化配置，无需改代码.
 
     Attributes:
+        api_base: OpenAI 兼容 endpoint 的 base URL. 空字符串表示用 SDK 默认地址.
+        api_key: 对应 endpoint 的 API key.
         allow_clarification: 是否在研究前向用户追问澄清. 关闭则直接进入 brief 生成.
         max_concurrent_research_units: supervisor 并行派发的 researcher 子图上限.
-            默认 3 对齐 FinSight max_concurrent，避免触发 provider rate limit.
+            默认 3，避免触发 endpoint rate limit.
         max_researcher_iterations: supervisor 反思轮数上限. 超过即结束研究阶段，
             防止无限循环消耗 token.
-        research_model: 研究 LLM（clarify / write_brief / supervisor / researcher）.
-            格式 provider:model，由 init_chat_model 解析.
+        research_model: 研究 LLM 模型名（clarify/write_brief/supervisor/researcher）.
+            纯模型名，不含 provider 前缀，如 "deepseek-v4-flash".
         research_model_max_tokens: 研究模型单次调用最大输出 token.
-        final_report_model: 最终报告生成 LLM. 可与研究模型不同，如换更大上下文模型.
+        final_report_model: 最终报告生成 LLM 模型名. 可与研究模型不同.
         final_report_model_max_tokens: 报告模型单次调用最大输出 token.
     """
 
+    # --- endpoint 配置（所有节点共用）---
+    api_base: str = Field(
+        default="",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "string",
+                "default": "",
+                "description": "OpenAI 兼容 endpoint 的 base URL. 空则用 SDK 默认地址，支持官方/中转/自建代理.",
+            }
+        },
+    )
+    api_key: str = Field(
+        default="",
+        metadata={
+            "x_oap_ui_config": {
+                "type": "string",
+                "default": "",
+                "description": "对应 endpoint 的 API key.",
+            }
+        },
+    )
+
+    # --- 流程控制 ---
     allow_clarification: bool = Field(
         default=True,
         metadata={
@@ -37,7 +63,6 @@ class Configuration(BaseModel):
             }
         },
     )
-
     max_concurrent_research_units: int = Field(
         default=3,
         metadata={
@@ -47,7 +72,7 @@ class Configuration(BaseModel):
                 "min": 1,
                 "max": 10,
                 "step": 1,
-                "description": "supervisor 并行派发的 researcher 子图上限. 默认 3 对齐 FinSight max_concurrent，避免 rate limit.",
+                "description": "supervisor 并行派发的 researcher 子图上限. 默认 3，避免 rate limit.",
             }
         },
     )
@@ -65,15 +90,14 @@ class Configuration(BaseModel):
         },
     )
 
-    # 阶段 1 仅声明模型字段，真实 LLM 调用在阶段 2 接入 init_chat_model 后生效.
-    # 先占位是为了让 Studio 能尽早展示配置项，且让节点签名稳定.
+    # --- 模型配置 ---
     research_model: str = Field(
-        default="deepseek:deepseek-v4-flash",
+        default="deepseek-v4-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "string",
-                "default": "deepseek:deepseek-v4-flash",
-                "description": "研究用 LLM（clarify / write_brief / supervisor / researcher 主体）. 格式 provider:model，由 init_chat_model 解析.",
+                "default": "deepseek-v4-flash",
+                "description": "研究用 LLM 模型名（clarify/write_brief/supervisor/researcher）. 纯模型名，不含 provider 前缀.",
             }
         },
     )
@@ -88,12 +112,12 @@ class Configuration(BaseModel):
         },
     )
     final_report_model: str = Field(
-        default="deepseek:deepseek-v4-flash",
+        default="deepseek-v4-flash",
         metadata={
             "x_oap_ui_config": {
                 "type": "string",
-                "default": "deepseek:deepseek-v4-flash",
-                "description": "最终报告生成 LLM. 可与研究模型不同，如换更大上下文模型.",
+                "default": "deepseek-v4-flash",
+                "description": "最终报告生成 LLM 模型名. 可与研究模型不同.",
             }
         },
     )
