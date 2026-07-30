@@ -6,12 +6,16 @@ deepseek-v4-flash 默认开启思考模式，但思考模式不支持 strict 的
 
 思考开关通过 extra_body={"thinking": {"type": "disabled"|"enabled"}} 传给服务端，
 configurable_fields 加入 extra_body 让 with_config 运行时切换.
+
+think_tool 是供 supervisor/researcher 反思的空工具，LLM 调用后原样返回 reflection，
+用于在研究流程中创造显式的"暂停思考"动作.
 """
 
 from datetime import datetime
 from typing import Any
 
 from langchain.chat_models import init_chat_model
+from langchain_core.tools import tool
 
 from company_report_kit.configuration import Configuration
 
@@ -20,6 +24,16 @@ from company_report_kit.configuration import Configuration
 configurable_model = init_chat_model(
     configurable_fields=("model", "max_tokens", "api_key", "extra_body"),
 )
+
+
+@tool
+def think_tool(reflection: str) -> str:
+    """反思工具：记录对研究进展的反思，规划下一步.
+
+    supervisor 和 researcher 在搜索后或派发前调用，创造显式思考动作.
+    调用后原样返回 reflection，不执行实际逻辑.
+    """
+    return reflection
 
 
 def get_today_str() -> str:
