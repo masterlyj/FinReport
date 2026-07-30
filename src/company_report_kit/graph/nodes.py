@@ -71,7 +71,8 @@ async def write_brief(
         "研究范围：公司概况、商业模式、财务分析、估值、竞争格局、风险."
     )
     # interrupt 暂停图执行，返回值作为 resume 时的输入.
-    # 用户在 Studio 确认后传入 {"approved": true} 即继续.
+    # resume 时必须用 Command(resume=...) 包裹，图从本节点开头重新执行，
+    # interrupt 第二次调用返回 resume 值，跳过 raise.
     user_decision = interrupt({"research_brief": placeholder_brief})
     _log("write_brief", f"用户决策={user_decision}")
     # 阶段 1 默认信任用户确认，直接放行；阶段 2 加分支处理拒绝回退.
@@ -129,7 +130,7 @@ async def final_report_generation(
     _log("final_report_generation", "生成占位报告")
     placeholder_report = "公司深度研究报告（占位）：阶段 5 接入两阶段写作后替换."
     return Command(
-        goto=Command.END,
+        goto="__end__",
         update={
             "final_report": placeholder_report,
             "messages": [AIMessage(content=placeholder_report)],
