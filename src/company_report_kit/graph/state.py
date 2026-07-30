@@ -1,0 +1,196 @@
+"""Company Report Kit 的图状态定义.
+
+按"图状态只承载编排数据，证据走 Variable Memory"的分层决策，
+这里只定义跨节点传递的控制流数据结构：当前 brief、topic 列表、notes.
+证据/分析结果/检索 embedding 不进图状态，阶段 2 通过 config 注入 Memory.
+
+对齐 open_deep_research 的三层状态划分：
+  AgentState / SupervisorState / ResearcherState / ResearcherOutputState
+并保留其结构化输出模型（ConductResearch / ResearchComplete / ClarifyWithUser /
+ResearchQuestion），这些既是 LLM 输出 schema，也是工具调用参数定义，
+阶段 3 接 Send 派发和阶段 2 接 LLM 时直接复用.
+
+相比原项目，write_brief 节点产出后直接 interrupt 等待人工确认，
+合并了原 PRD 的"研究计划生成与人工确认"环节，由 brief 承担，
+对齐 open_deep_research 的单次 HIL 模式.
+"""
+
+from typing import Annotated, Optional
+
+from langchain_core.messages import MessageLikeRepresentation
+from langgraph.graph import MessagesState
+from pydantic import BaseModel, Field
+from typing_extensions import TypedDict
+
+
+def override_reducer(current_value, new_value):
+    """覆盖式 reducer：允许节点整体覆盖某字段而非追加.
+
+    LangGraph 默认对 list 字段做 append，但 brief / final_report 这类
+    字段期望"后写覆盖前写"，所以用本 reducer 配合
+    {"type": "override", "value": ...} 语法实现整体替换.
+
+    Args:
+        current_value: 当前 state 中的值.
+        new_value: 节点 update 的新值. 若为 {"type": "override", ...}
+            则整体替换；否则走默认 add 语义.
+
+    Returns:
+        替换后的值或追加后的值.
+    """
+    if isinstance(new_value, dict) and new_value.get("type") == "override":
+        return new_value.get("value", new_value)
+    return current_value + new_value
+
+
+###################
+# 结构化输出模型
+###################
+class ConductResearch(BaseModel):
+    """supervisor 调用此工具派发研究任务给 researcher 子图.
+
+    阶段 3 接 Send 并行派发时，此模型作为工具调用的参数 schema，
+    也作为 supervisor LLM 的结构化输出约束.
+    """
+
+    research_topic: str = Field(
+        description="研究主题. 应为单一主题，描述需详尽（至少一段话），便于 researcher 聚焦.",
+    )
+
+
+class ResearchComplete(BaseModel):
+    """supervisor 调用此工具标记研究阶段结束.
+
+    触发条件：supervisor 认为已收集足够证据，或达到 max_researcher_iterations.
+    """
+
+
+class ClarifyWithUser(BaseModel):
+    """clarify 节点的 LLM 结构化输出，判断是否需要向用户追问.
+
+    阶段 2 接 init_chat_model 后，clarify_with_user 节点用此模型约束 LLM 输出.
+
+    Attributes:
+        need_clarification: 是否需要追问. True 则返回 question 暂停图执行.
+        question: 需要追问时返回给用户的问题.
+        verification: 无需追问时返回给用户的确认信息，表示开始研究.
+    """
+
+    need_clarification: bool = Field(
+        description="是否需要向用户追问澄清.",
+    )
+    question: str = Field(
+        description="向用户追问的问题，用于澄清报告范围.",
+    )
+    verification: str = Field(
+        description="无需追问时返回给用户的确认信息，表示研究即将开始.",
+    )
+
+
+class ResearchQuestion(BaseModel):
+    """write_brief 节点的 LLM 结构化输出，生成研究简报.
+
+    阶段 2 接 init_chat_model 后，write_brief 节点用此模型约束 LLM 输出，
+    产出结构化 research_brief 驱动后续 supervisor.
+    write_brief 产出后直接 interrupt 等待人工确认，由 brief 承担 PRD
+    第 5 节的"研究计划生成与人工确认"环节.
+
+    Attributes:
+        research_brief: 研究简报，将用于指导后续研究.
+    """
+
+    research_brief: str = Field(
+        description="研究简报，将用于指导后续研究.",
+    )
+
+
+###################
+# 状态定义
+###################
+class AgentInputState(MessagesState):
+    """图的输入状态，只暴露 messages 字段.
+
+    收窄输入 schema，避免用户线程意外注入 research_brief / notes 等内部字段，
+    强制走 clarify → write_brief 节点产出.
+    """
+
+
+class AgentState(MessagesState):
+    """主图状态，贯穿 clarify → write_brief → supervisor → report.
+
+    Attributes:
+        messages: 与用户的对话历史（含澄清问答）.
+        supervisor_messages: supervisor 子图内部消息流，独立于主 messages，
+            避免研究员的工具调用污染用户可见对话.
+        research_brief: write_brief 节点产出、经 interrupt 人工确认的研究简报，
+            同时承担研究范围与方向，驱动后续 supervisor.
+        notes: 研究阶段产出的压缩笔记，汇总各 researcher 的 compressed_research.
+        raw_notes: 原始工具输出（未经压缩），保留供最终报告引用追溯.
+        final_report: 最终报告文本.
+    """
+
+    supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
+    research_brief: Optional[str] = None
+    notes: Annotated[list[str], override_reducer] = []
+    raw_notes: Annotated[list[str], override_reducer] = []
+    final_report: Optional[str] = None
+
+
+class SupervisorState(TypedDict):
+    """supervisor 子图状态，独立于主图.
+
+    单独划分是因为 supervisor 的反思循环不需要污染用户 messages，
+    其工具调用（ConductResearch / ResearchComplete）只在子图内流转.
+
+    Attributes:
+        supervisor_messages: supervisor 与 researcher 交互的消息流.
+        research_brief: 继承自主图，作为 supervisor 决策上下文.
+        notes: 各 researcher 回传的压缩笔记，用 override_reducer 汇聚.
+        research_iterations: 当前反思轮数，用于触发 max_researcher_iterations 退出.
+        raw_notes: 原始工具输出（未经压缩），保留供最终报告引用追溯.
+    """
+
+    supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
+    research_brief: str
+    notes: Annotated[list[str], override_reducer] = []
+    research_iterations: int = 0
+    raw_notes: Annotated[list[str], override_reducer] = []
+
+
+class ResearcherState(TypedDict):
+    """单个 researcher 子图状态.
+
+    每个 researcher 由 supervisor 通过 Send 派发，独立运行.
+    内部字段 researcher_messages / tool_call_iterations 不回传父图，
+    通过 ResearcherOutputState 显式控制暴露给 supervisor 的字段.
+
+    Attributes:
+        researcher_messages: researcher 与工具交互的消息流，子图内部使用.
+        tool_call_iterations: 当前工具调用轮数，触发 max_react_tool_calls 退出.
+        research_topic: supervisor 指派的研究主题.
+        compressed_research: 压缩后的研究摘要，回传 supervisor.
+        raw_notes: 原始工具输出，保留供证据库写入.
+    """
+
+    researcher_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
+    tool_call_iterations: int = 0
+    research_topic: str
+    compressed_research: str
+    raw_notes: Annotated[list[str], override_reducer] = []
+
+
+class ResearcherOutputState(BaseModel):
+    """researcher 子图的输出 schema，显式控制回传父图的字段.
+
+    独立于 ResearcherState，只暴露压缩后结果和原始笔记，
+    屏蔽 researcher_messages / tool_call_iterations 等内部状态，
+    避免子图内部消息流污染 supervisor 的 supervisor_messages.
+
+    Attributes:
+        compressed_research: 压缩后的研究摘要，供 supervisor 决策.
+        raw_notes: 原始工具输出，汇聚到主图 raw_notes 供最终报告引用.
+    """
+
+    compressed_research: str
+    raw_notes: Annotated[list[str], override_reducer] = []
+
