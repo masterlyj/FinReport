@@ -19,7 +19,7 @@ from typing import Annotated, Optional
 
 from langchain_core.messages import MessageLikeRepresentation
 from langgraph.graph import MessagesState
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import TypedDict
 
 
@@ -76,6 +76,8 @@ class ClarifyWithUser(BaseModel):
         verification: 无需追问时返回给用户的确认信息，表示开始研究.
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     need_clarification: bool = Field(
         description="是否需要向用户追问澄清.",
     )
@@ -98,6 +100,8 @@ class ResearchQuestion(BaseModel):
     Attributes:
         research_brief: 研究简报，将用于指导后续研究.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     research_brief: str = Field(
         description="研究简报，将用于指导后续研究.",
@@ -193,4 +197,3 @@ class ResearcherOutputState(BaseModel):
 
     compressed_research: str
     raw_notes: Annotated[list[str], override_reducer] = []
-

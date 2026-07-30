@@ -1,26 +1,28 @@
 """Company Report Kit 图节点实现.
 
-定义主图与 supervisor 子图的节点函数。每个节点接收当前 state 与运行时配置，
-返回 Command 跳转下一节点并更新状态。
-
 流程：
   clarify_with_user → write_brief(interrupt) → supervisor ⇄ supervisor_tools
   → final_report_generation → END
 
-write_brief 节点产出研究简报后调 interrupt() 暂停等待人工确认，承担 PRD
-第 5 节"研究计划生成与人工确认"环节。其余节点目前返回写死的占位内容，
-后续接入 LLM、Variable Memory、researcher 子图时替换对应节点内部逻辑即可，
-节点签名与跳转关系保持稳定。
+clarify/write_brief 用 with_structured_output(strict=True) 关思考模式获取结构化输出.
+final_report 开思考模式提升报告逻辑性.
+supervisor/supervisor_tools 占位，阶段 3 接入 Send 派发时改造.
 """
 
 from typing import Literal
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, get_buffer_string
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command, interrupt
 
 from company_report_kit.configuration import Configuration
-from company_report_kit.graph.state import AgentState
+from company_report_kit.graph.state import AgentState, ClarifyWithUser, ResearchQuestion
+from company_report_kit.prompts import (
+    clarify_with_user_instructions,
+    final_report_generation_prompt,
+    transform_messages_into_research_topic_prompt,
+)
+from company_report_kit.utils import configurable_model, get_model_config, get_today_str
 
 
 def _log(node: str, msg: str) -> None:
@@ -33,21 +35,41 @@ async def clarify_with_user(
 ) -> Command[Literal["write_brief", "__end__"]]:
     """判断是否需要向用户追问澄清.
 
-    读取 Configuration.allow_clarification 决定是否启用澄清环节。
-    启用但无需追问时，直接进入 brief 生成；需追问时跳 END 并返回问题给用户.
-
-    Args:
-        state: 当前图状态，含用户输入的 messages.
-        config: 运行时配置，用于加载 Configuration.
-
-    Returns:
-        Command 跳转 write_brief（当前默认放行）或 END（需追问时返回问题）.
+    用 ClarifyWithUser 结构化输出约束 LLM. allow_clarification=False 时直接放行.
+    思考模式关闭以保证 strict 工具调用兼容.
     """
     configurable = Configuration.from_runnable_config(config)
-    _log("clarify_with_user", f"allow_clarification={configurable.allow_clarification}")
     if not configurable.allow_clarification:
         return Command(goto="write_brief")
-    return Command(goto="write_brief")
+
+    model_config = get_model_config(
+        configurable, configurable.research_model, configurable.research_model_max_tokens
+    )
+    clarification_model = (
+        configurable_model
+        .with_structured_output(ClarifyWithUser, strict=True)
+        .with_retry(stop_after_attempt=3)
+        .with_config(model_config)
+    )
+    prompt_content = clarify_with_user_instructions.format(
+        messages=get_buffer_string(state["messages"]),
+        date=get_today_str(),
+    )
+    _log("clarify_with_user", "调用 LLM 判断是否需追问")
+    response: ClarifyWithUser = await clarification_model.ainvoke(
+        [HumanMessage(content=prompt_content)]
+    )
+    if response.need_clarification:
+        _log("clarify_with_user", "需追问")
+        return Command(
+            goto="__end__",
+            update={"messages": [AIMessage(content=response.question)]},
+        )
+    _log("clarify_with_user", "无需追问，放行")
+    return Command(
+        goto="write_brief",
+        update={"messages": [AIMessage(content=response.verification)]},
+    )
 
 
 async def write_brief(
@@ -55,27 +77,31 @@ async def write_brief(
 ) -> Command[Literal["research_supervisor"]]:
     """生成研究简报并暂停等待人工确认.
 
-    从用户 messages 提取研究目标，构造 research_brief，调 interrupt() 暂停图执行
-    把简报回传用户。用户用 Command(resume=...) 确认后，图从本节点开头重新执行，
-    interrupt() 第二次调用返回 resume 值，节点继续跳转 research_supervisor.
-
-    Args:
-        state: 当前图状态，含用户输入的 messages.
-        config: 运行时配置.
-
-    Returns:
-        Command 跳转 research_supervisor，update 写入 research_brief.
+    用 ResearchQuestion 结构化输出约束 LLM 生成 research_brief.
+    调 interrupt() 暂停等待人工确认，resume 时图从本节点开头重新执行.
     """
-    messages = state.get("messages", [])
-    user_input = messages[-1].content if messages else "(空输入)"
-    _log("write_brief", f"user_input={user_input[:80]}, 生成简报后等待人工确认")
-    research_brief = (
-        f"研究简报（占位）：对 {user_input} 进行公司深度研究.\n"
-        "研究范围：公司概况、商业模式、财务分析、估值、竞争格局、风险."
+    configurable = Configuration.from_runnable_config(config)
+    model_config = get_model_config(
+        configurable, configurable.research_model, configurable.research_model_max_tokens
     )
+    research_model = (
+        configurable_model
+        .with_structured_output(ResearchQuestion, strict=True)
+        .with_retry(stop_after_attempt=3)
+        .with_config(model_config)
+    )
+    prompt_content = transform_messages_into_research_topic_prompt.format(
+        messages=get_buffer_string(state.get("messages", [])),
+        date=get_today_str(),
+    )
+    _log("write_brief", "调用 LLM 生成研究简报")
+    response: ResearchQuestion = await research_model.ainvoke(
+        [HumanMessage(content=prompt_content)]
+    )
+    research_brief = response.research_brief
+
     # interrupt() 暂停图执行，把简报回传用户.
-    # resume 时必须用 Command(resume=...) 包裹，图从本节点开头重新执行，
-    # interrupt() 第二次调用返回 resume 值作为 user_decision，跳过 raise.
+    # resume 时必须用 Command(resume=...) 包裹，图从本节点开头重新执行.
     user_decision = interrupt({"research_brief": research_brief})
     _log("write_brief", f"用户决策={user_decision}")
     return Command(
@@ -87,73 +113,94 @@ async def write_brief(
 async def supervisor(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["supervisor_tools"]]:
-    """supervisor 节点：基于 research_brief 决策研究策略.
-
-    读取 research_brief 作为决策上下文，通过工具调用（ConductResearch 拆分研究
-    主题、think_tool 反思、ResearchComplete 标记结束）驱动研究流程，结果交由
-    supervisor_tools 执行.
-
-    Args:
-        state: 当前图状态，含 research_brief.
-        config: 运行时配置.
-
-    Returns:
-        Command 跳转 supervisor_tools 执行工具调用.
-    """
+    """supervisor 节点：基于 research_brief 决策研究策略（阶段 3 接入 LLM）."""
     brief = state.get("research_brief", "(无 brief)")
-    _log("supervisor", f"brief={brief[:80]}")
+    _log("supervisor", f"brief={brief[:80]}（占位，阶段 3 接入 LLM）")
     return Command(goto="supervisor_tools")
 
 
 async def supervisor_tools(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["supervisor", "__end__"]]:
-    """supervisor_tools 节点：执行 supervisor 决策的工具调用.
-
-    处理三类工具调用：
-      1. think_tool - supervisor 反思，循环回 supervisor
-      2. ConductResearch - 派发 researcher 子图，循环回 supervisor
-      3. ResearchComplete - 标记研究结束，跳 END 结束子图
-
-    当 research_iterations 超过 max_researcher_iterations 时强制结束子图，
-    由主图边 research_supervisor→final_report_generation 接管进入报告生成.
-
-    Args:
-        state: 当前 supervisor 子图状态，含 research_iterations.
-        config: 运行时配置，用于加载 Configuration.
-
-    Returns:
-        Command 跳转 supervisor（继续循环）或 __end__（结束子图）.
-    """
-    configurable = Configuration.from_runnable_config(config)
-    iterations = state.get("research_iterations", 0)
-    _log("supervisor_tools", f"iterations={iterations} max={configurable.max_researcher_iterations}")
-    # 跳 END 结束子图，主图边 research_supervisor→final_report_generation 接管.
+    """supervisor_tools 节点：执行 supervisor 决策的工具调用（阶段 3 接入）."""
+    _log("supervisor_tools", "占位，跳 END 结束子图")
     return Command(goto="__end__")
 
 
 async def final_report_generation(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["__end__"]]:
-    """最终报告生成节点.
+    """生成最终报告.
 
-    汇总 research_brief 与 notes 生成最终报告，写入 final_report 并追加
-    AIMessage 到 messages 供用户查看.
-
-    Args:
-        state: 当前图状态，含 research_brief、notes、raw_notes.
-        config: 运行时配置.
-
-    Returns:
-        Command 跳 END，update 写入 final_report 与 messages.
+    基于 research_brief + notes + messages 调 LLM 生成报告.
+    开思考模式提升金融报告的逻辑性与深度.
+    token 超限时逐步截断 findings 重试，最多 3 次.
     """
-    _log("final_report_generation", "生成占位报告")
-    final_report = "公司深度研究报告（占位）：待接入两阶段写作（outline → sections）."
+    configurable = Configuration.from_runnable_config(config)
+    model_config = get_model_config(
+        configurable,
+        configurable.final_report_model,
+        configurable.final_report_model_max_tokens,
+        thinking=True,
+    )
+    writer_model = configurable_model.with_config(model_config)
+
+    notes = state.get("notes", [])
+    findings = "\n".join(notes)
+    cleared_state = {"notes": {"type": "override", "value": []}}
+
+    max_retries = 3
+    current_retry = 0
+    findings_char_limit = None
+
+    while current_retry <= max_retries:
+        try:
+            final_report_prompt = final_report_generation_prompt.format(
+                research_brief=state.get("research_brief", ""),
+                messages=get_buffer_string(state.get("messages", [])),
+                findings=findings,
+                date=get_today_str(),
+            )
+            _log("final_report_generation", f"调用 LLM 生成报告（第 {current_retry + 1} 次）")
+            final_report_msg = await writer_model.ainvoke([
+                HumanMessage(content=final_report_prompt)
+            ])
+            return Command(
+                goto="__end__",
+                update={
+                    "final_report": final_report_msg.content,
+                    "messages": [final_report_msg],
+                    **cleared_state,
+                },
+            )
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "context length" in err_msg or "maximum" in err_msg or "token" in err_msg:
+                current_retry += 1
+                if current_retry == 1:
+                    findings_char_limit = 200000
+                else:
+                    findings_char_limit = int(findings_char_limit * 0.9)
+                findings = findings[:findings_char_limit]
+                _log("final_report_generation", f"token 超限，截断到 {findings_char_limit} 字符重试")
+                continue
+            error_report = f"生成报告失败：{e}"
+            return Command(
+                goto="__end__",
+                update={
+                    "final_report": error_report,
+                    "messages": [AIMessage(content=error_report)],
+                    **cleared_state,
+                },
+            )
+
+    error_report = "生成报告失败：重试次数耗尽"
     return Command(
         goto="__end__",
         update={
-            "final_report": final_report,
-            "messages": [AIMessage(content=final_report)],
+            "final_report": error_report,
+            "messages": [AIMessage(content=error_report)],
+            **cleared_state,
         },
     )
 
