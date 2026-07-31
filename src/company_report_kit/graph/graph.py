@@ -30,7 +30,7 @@ from company_report_kit.graph.state import AgentInputState, AgentState, Supervis
 # 阶段1只有 supervisor + supervisor_tools 两节点，无 researcher 派发.
 # 阶段3接入时，在 supervisor_tools 内部用 Send 派发 researcher_subgraph，
 # 无需改动本子图的 add_node/add_edge 结构.
-supervisor_builder = StateGraph(SupervisorState, config_schema=Configuration)
+supervisor_builder = StateGraph(SupervisorState, context_schema=Configuration)
 supervisor_builder.add_node("supervisor", supervisor)
 supervisor_builder.add_node("supervisor_tools", supervisor_tools)
 supervisor_builder.add_edge(START, "supervisor")
@@ -49,7 +49,7 @@ supervisor_subgraph = supervisor_builder.compile()
 main_builder = StateGraph(
     AgentState,
     input=AgentInputState,
-    config_schema=Configuration,
+    context_schema=Configuration,
 )
 main_builder.add_node("clarify_with_user", clarify_with_user)
 main_builder.add_node("write_brief", write_brief)

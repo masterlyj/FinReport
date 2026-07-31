@@ -138,8 +138,8 @@ async def compress_research(
 # researcher 子图编译
 researcher_builder = StateGraph(
     ResearcherState,
-    output=ResearcherOutputState,
-    config_schema=Configuration,
+    output_schema=ResearcherOutputState,
+    context_schema=Configuration,
 )
 researcher_builder.add_node("researcher", researcher)
 researcher_builder.add_node("researcher_tools", researcher_tools)
