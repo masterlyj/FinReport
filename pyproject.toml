@@ -28,3 +28,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "network: 需网络访问(DDG/extract,无需 key)",
+    "live: 需真实 API key(DeepSeek/Tavily)",
+]
+
