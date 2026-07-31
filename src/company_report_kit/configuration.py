@@ -90,6 +90,20 @@ class Configuration(BaseModel):
         },
     )
 
+    max_react_tool_calls: int = Field(
+        default=10,
+        metadata={
+            "x_oap_ui_config": {
+                "type": "slider",
+                "default": 10,
+                "min": 1,
+                "max": 30,
+                "step": 1,
+                "description": "单个 researcher 工具调用轮数上限. 超过即结束研究进入压缩.",
+            }
+        },
+    )
+
     # --- 模型配置 ---
     research_model: str = Field(
         default="deepseek-v4-flash",
@@ -102,11 +116,11 @@ class Configuration(BaseModel):
         },
     )
     research_model_max_tokens: int = Field(
-        default=16384,
+        default=65536,
         metadata={
             "x_oap_ui_config": {
                 "type": "number",
-                "default": 16384,
+                "default": 65536,
                 "description": "研究模型单次调用最大输出 token.",
             }
         },
@@ -122,11 +136,11 @@ class Configuration(BaseModel):
         },
     )
     final_report_model_max_tokens: int = Field(
-        default=16384,
+        default=65536,
         metadata={
             "x_oap_ui_config": {
                 "type": "number",
-                "default": 16384,
+                "default": 65536,
                 "description": "报告模型单次调用最大输出 token.",
             }
         },
@@ -151,4 +165,3 @@ class Configuration(BaseModel):
             return cls(**{k: v for k, v in configurable.items() if k in cls.model_fields})
         except Exception:
             return cls()
-
