@@ -9,6 +9,8 @@ configurable_fields 加入 extra_body 让 with_config 运行时切换.
 
 think_tool 是供 supervisor/researcher 反思的空工具，LLM 调用后原样返回 reflection，
 用于在研究流程中创造显式的"暂停思考"动作.
+
+RETRY_KWARGS 控制 with_retry 行为：指数退避默认开启，重试 5 次应对 API 间歇性限流.
 """
 
 from datetime import datetime
@@ -36,15 +38,16 @@ def think_tool(reflection: str) -> str:
     return reflection
 
 
-def get_today_str() -> str:
-    """返回当前日期的可读字符串，供中文研报 prompt 填充.
+# LLM 调用重试 kwargs.
+# wait_exponential_jitter 默认 True（指数退避+抖动），stop_after_attempt=5 应对 API 限流.
+RETRY_KWARGS = {"stop_after_attempt": 5, "wait_exponential_jitter": True}
 
-    Returns:
-        形如 '2024年1月15日' 的日期字符串.
-    """
+
+def get_today_str() -> str:
+    """返回当前日期的可读字符串，供 prompt 填充."""
     now = datetime.now()
-    # 使用 %m 和 %d，并加上“年月日”汉字
-    return now.strftime("%Y年%-m月%d日")
+    return f"{now.year}年{now.month}月{now.day}日"
+
 
 def get_model_config(
     configurable: Configuration,
@@ -71,4 +74,14 @@ def get_model_config(
         "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}},
         "tags": ["langsmith:nostream"],
     }
+
+
+def get_notes_from_tool_calls(messages: list) -> list[str]:
+    """从消息列表提取所有 ToolMessage 的 content 作为 notes.
+
+    supervisor_tools 退出研究阶段时调用，把 ConductResearch 的结果汇聚成 notes，
+    供 final_report_generation 引用.
+    """
+    from langchain_core.messages import filter_messages
+    return [str(m.content) for m in filter_messages(messages, include_types="tool")]
 

@@ -6,23 +6,39 @@
 
 clarify/write_brief 用 with_structured_output(strict=True) 关思考模式获取结构化输出.
 final_report 开思考模式提升报告逻辑性.
-supervisor/supervisor_tools 占位，阶段 3 接入 Send 派发时改造.
+supervisor 用 bind_tools 决策派发，supervisor_tools 用 ainvoke 并行调用 researcher_subgraph.
 """
 
+import asyncio
 from typing import Literal
 
-from langchain_core.messages import AIMessage, HumanMessage, get_buffer_string
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage, get_buffer_string
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command, interrupt
 
 from company_report_kit.configuration import Configuration
-from company_report_kit.graph.state import AgentState, ClarifyWithUser, ResearchQuestion
+from company_report_kit.graph.researcher import researcher_subgraph
+from company_report_kit.graph.state import (
+    AgentState,
+    ClarifyWithUser,
+    ConductResearch,
+    ResearchComplete,
+    ResearchQuestion,
+)
 from company_report_kit.prompts import (
     clarify_with_user_instructions,
     final_report_generation_prompt,
+    lead_researcher_prompt,
     transform_messages_into_research_topic_prompt,
 )
-from company_report_kit.utils import configurable_model, get_model_config, get_today_str
+from company_report_kit.utils import (
+    configurable_model,
+    get_model_config,
+    get_notes_from_tool_calls,
+    get_today_str,
+    think_tool,
+    RETRY_KWARGS,
+)
 
 
 def _log(node: str, msg: str) -> None:
@@ -48,7 +64,7 @@ async def clarify_with_user(
     clarification_model = (
         configurable_model
         .with_structured_output(ClarifyWithUser, strict=True)
-        .with_retry(stop_after_attempt=3)
+        .with_retry(**RETRY_KWARGS)
         .with_config(model_config)
     )
     prompt_content = clarify_with_user_instructions.format(
@@ -87,7 +103,7 @@ async def write_brief(
     research_model = (
         configurable_model
         .with_structured_output(ResearchQuestion, strict=True)
-        .with_retry(stop_after_attempt=3)
+        .with_retry(**RETRY_KWARGS)
         .with_config(model_config)
     )
     prompt_content = transform_messages_into_research_topic_prompt.format(
@@ -106,25 +122,117 @@ async def write_brief(
     _log("write_brief", f"用户决策={user_decision}")
     return Command(
         goto="research_supervisor",
-        update={"research_brief": research_brief},
+        update={
+            "research_brief": research_brief,
+            "supervisor_messages": {
+                "type": "override",
+                "value": [
+                    SystemMessage(content=lead_researcher_prompt.format(
+                        date=get_today_str(),
+                        max_researcher_iterations=Configuration.from_runnable_config(config).max_researcher_iterations,
+                        max_concurrent_research_units=Configuration.from_runnable_config(config).max_concurrent_research_units,
+                    )),
+                    HumanMessage(content=research_brief),
+                ],
+            },
+        },
     )
 
 
 async def supervisor(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["supervisor_tools"]]:
-    """supervisor 节点：基于 research_brief 决策研究策略（阶段 3 接入 LLM）."""
-    brief = state.get("research_brief", "(无 brief)")
-    _log("supervisor", f"brief={brief[:80]}（占位，阶段 3 接入 LLM）")
-    return Command(goto="supervisor_tools")
+    """supervisor 节点：基于 research_brief 用 LLM 决策研究策略.
+
+    bind ConductResearch / ResearchComplete / think_tool 三个工具，
+    LLM 按简报拆分研究主题或标记完成，结果交由 supervisor_tools 执行.
+    思考模式关闭以兼容工具调用.
+    """
+    configurable = Configuration.from_runnable_config(config)
+    model_config = get_model_config(
+        configurable, configurable.research_model, configurable.research_model_max_tokens
+    )
+    lead_tools = [ConductResearch, ResearchComplete, think_tool]
+    research_model = (
+        configurable_model
+        .bind_tools(lead_tools)
+        .with_retry(**RETRY_KWARGS)
+        .with_config(model_config)
+    )
+    supervisor_system_prompt = lead_researcher_prompt.format(
+        date=get_today_str(),
+        max_researcher_iterations=configurable.max_researcher_iterations,
+        max_concurrent_research_units=configurable.max_concurrent_research_units,
+    )
+    supervisor_messages = state.get("supervisor_messages", [])
+    from langchain_core.messages import AIMessage
+    _iter = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
+    _log("supervisor", f"iterations={_iter} 调用 LLM 决策")
+    response = await research_model.ainvoke(supervisor_messages)
+    return Command(
+        goto="supervisor_tools",
+        update={
+            "supervisor_messages": [response],
+            "research_iterations": state.get("research_iterations", 0) + 1,
+        },
+    )
 
 
 async def supervisor_tools(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["supervisor", "__end__"]]:
-    """supervisor_tools 节点：执行 supervisor 决策的工具调用（阶段 3 接入）."""
-    _log("supervisor_tools", "占位，跳 END 结束子图")
-    return Command(goto="__end__")
+    """supervisor_tools: 执行工具后再检查 exceeded 退出.
+
+    先执行当轮 ConductResearch（拿到 researcher 结果 ToolMessage），
+    再检查 exceeded——这样 notes 汇聚时能提取到本轮结果.
+    """
+    configurable = Configuration.from_runnable_config(config)
+    supervisor_messages = state.get("supervisor_messages", [])
+    from langchain_core.messages import AIMessage
+    research_iterations = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
+    most_recent = supervisor_messages[-1]
+
+    no_tool_calls = not most_recent.tool_calls
+    research_complete = any(tc["name"] == "ResearchComplete" for tc in most_recent.tool_calls)
+    exceeded = research_iterations > configurable.max_researcher_iterations
+
+    if research_complete or no_tool_calls:
+        _log("supervisor_tools", f"退出(complete={research_complete} no_calls={no_tool_calls})")
+        return Command(goto="__end__", update={"notes": get_notes_from_tool_calls(supervisor_messages), "research_brief": state.get("research_brief", "")})
+
+    all_tool_messages = []
+    for tc in most_recent.tool_calls:
+        if tc["name"] == "think_tool":
+            all_tool_messages.append(ToolMessage(content=f"反思: {tc['args']['reflection']}", name="think_tool", tool_call_id=tc["id"]))
+
+    conduct_calls = [tc for tc in most_recent.tool_calls if tc["name"] == "ConductResearch"]
+    if conduct_calls:
+        allowed = conduct_calls[:configurable.max_concurrent_research_units]
+        overflow = conduct_calls[configurable.max_concurrent_research_units:]
+        _log("supervisor_tools", f"派发 {len(allowed)} 个 researcher(overflow {len(overflow)})")
+        research_tasks = [researcher_subgraph.ainvoke({"researcher_messages": [HumanMessage(content=tc["args"]["research_topic"])], "research_topic": tc["args"]["research_topic"]}, config) for tc in allowed]
+        tool_results = await asyncio.gather(*research_tasks, return_exceptions=True)
+        for observation, tc in zip(tool_results, allowed):
+            if isinstance(observation, Exception):
+                all_tool_messages.append(ToolMessage(content=f"研究失败: {observation}", name=tc["name"], tool_call_id=tc["id"]))
+                continue
+            all_tool_messages.append(ToolMessage(content=observation.get("compressed_research", "研究压缩失败"), name=tc["name"], tool_call_id=tc["id"]))
+        for tc in overflow:
+            all_tool_messages.append(ToolMessage(content=f"超出并行上限", name="ConductResearch", tool_call_id=tc["id"]))
+        all_raw = []
+        for obs in tool_results:
+            if not isinstance(obs, Exception):
+                all_raw.extend(obs.get("raw_notes", []))
+        raw_notes_concat = "\n".join(all_raw)
+        if exceeded:
+            _log("supervisor_tools", "exceeded，执行完工具后退出")
+            return Command(goto="__end__", update={"supervisor_messages": all_tool_messages, "notes": [str(m.content) for m in all_tool_messages], "raw_notes": [raw_notes_concat] if raw_notes_concat else [], "research_brief": state.get("research_brief", "")})
+        return Command(goto="supervisor", update={"supervisor_messages": all_tool_messages, "raw_notes": [raw_notes_concat] if raw_notes_concat else []})
+
+    if exceeded:
+        _log("supervisor_tools", "exceeded，退出")
+        return Command(goto="__end__", update={"supervisor_messages": all_tool_messages, "notes": get_notes_from_tool_calls(supervisor_messages + all_tool_messages), "research_brief": state.get("research_brief", "")})
+    return Command(goto="supervisor", update={"supervisor_messages": all_tool_messages})
 
 
 async def final_report_generation(
@@ -174,15 +282,20 @@ async def final_report_generation(
                 },
             )
         except Exception as e:
+            current_retry += 1
             err_msg = str(e).lower()
             if "context length" in err_msg or "maximum" in err_msg or "token" in err_msg:
-                current_retry += 1
                 if current_retry == 1:
                     findings_char_limit = 200000
                 else:
                     findings_char_limit = int(findings_char_limit * 0.9)
                 findings = findings[:findings_char_limit]
                 _log("final_report_generation", f"token 超限，截断到 {findings_char_limit} 字符重试")
+            else:
+                import asyncio
+                _log("final_report_generation", f"API 失败({type(e).__name__})，第 {current_retry} 次重试")
+                await asyncio.sleep(2 ** current_retry)
+            if current_retry <= max_retries:
                 continue
             error_report = f"生成报告失败：{e}"
             return Command(

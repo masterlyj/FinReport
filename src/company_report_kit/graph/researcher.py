@@ -25,7 +25,7 @@ from company_report_kit.prompts import (
     research_system_prompt,
 )
 from company_report_kit.search_tools import duckduckgo_web_search
-from company_report_kit.utils import configurable_model, get_model_config, get_today_str, think_tool
+from company_report_kit.utils import RETRY_KWARGS, configurable_model, get_model_config, get_today_str, think_tool
 
 _RESEARCHER_TOOLS = [duckduckgo_web_search, think_tool]
 
@@ -50,7 +50,7 @@ async def researcher(
     research_model = (
         configurable_model
         .bind_tools(_RESEARCHER_TOOLS)
-        .with_retry(stop_after_attempt=3)
+        .with_retry(**RETRY_KWARGS)
         .with_config(model_config)
     )
     system_prompt = research_system_prompt.format(mcp_prompt="", date=get_today_str())
@@ -118,7 +118,7 @@ async def compress_research(
     model_config = get_model_config(
         configurable, configurable.research_model, configurable.research_model_max_tokens
     )
-    synthesizer = configurable_model.with_config(model_config)
+    synthesizer = configurable_model.with_retry(**RETRY_KWARGS).with_config(model_config)
     researcher_messages = list(state.get("researcher_messages", []))
     researcher_messages.append({"role": "user", "content": compress_research_simple_human_message})
     system_prompt = compress_research_system_prompt.format(date=get_today_str())

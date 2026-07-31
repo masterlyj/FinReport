@@ -15,7 +15,12 @@ ResearchQuestion），这些既是 LLM 输出 schema，也是工具调用参数�
 对齐 open_deep_research 的单次 HIL 模式.
 """
 
-from typing import Annotated, Optional
+from typing import Annotated, Callable, Optional, TypeVar
+
+T = TypeVar("T")
+
+def last_value(current: T, new: T) -> T:
+    return new
 
 from langchain_core.messages import MessageLikeRepresentation
 from langgraph.graph import MessagesState
@@ -157,7 +162,7 @@ class SupervisorState(TypedDict):
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_brief: str
     notes: Annotated[list[str], override_reducer] = []
-    research_iterations: int = 0
+    research_iterations: Annotated[int, last_value] = 0
     raw_notes: Annotated[list[str], override_reducer] = []
 
 
@@ -177,7 +182,7 @@ class ResearcherState(TypedDict):
     """
 
     researcher_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
-    tool_call_iterations: int = 0
+    tool_call_iterations: Annotated[int, last_value] = 0
     research_topic: str
     compressed_research: str
     raw_notes: Annotated[list[str], override_reducer] = []
