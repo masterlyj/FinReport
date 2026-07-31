@@ -24,23 +24,26 @@ def _make_searcher(monkeypatch: pytest.MonkeyPatch, resp: dict, **kwargs) -> tup
 
 
 def test_search_maps_results(monkeypatch: pytest.MonkeyPatch) -> None:
-    """results 映射到 Source(url/title/content),answer 取 Tavily 内置摘要。"""
+    """results 映射到 Source(url/title/content);不请求 Tavily 内置 answer,answer 恒为 None。"""
     resp = {
-        "answer": "摘要",
         "results": [{"url": "https://a", "title": "A", "content": "片段"}],
     }
-    searcher, _ = _make_searcher(monkeypatch, resp, max_results=2)
+    searcher, mock_client = _make_searcher(monkeypatch, resp, max_results=2)
     r = searcher.search("q")
-    assert r.answer == "摘要"
+    assert r.answer is None
     assert r.sources[0].url == "https://a"
     assert r.sources[0].title == "A"
     assert r.sources[0].content == "片段"
+    # 验证不再请求 Tavily 内置摘要,且 topic 固定为 finance
+    _, kwargs = mock_client.search.call_args
+    assert "include_answer" not in kwargs
+    assert kwargs["topic"] == "finance"
 
 
 def test_search_raw_content_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """默认 include_raw_content=False,Tavily 不返回 raw_content,Source.raw_content 为 None。"""
     # 模拟 Tavily 关闭时的真实返回:无 raw_content 字段
-    resp = {"answer": None, "results": [{"url": "https://a", "title": "A", "content": "片段"}]}
+    resp = {"results": [{"url": "https://a", "title": "A", "content": "片段"}]}
     searcher, mock_client = _make_searcher(monkeypatch, resp)
     r = searcher.search("q")
     assert r.sources[0].raw_content is None
@@ -50,10 +53,10 @@ def test_search_raw_content_off_by_default(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_search_raw_content_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    """开 include_raw_content=True 时,raw_content 填充(供入库)。"""
-    resp = {"answer": None, "results": [{"url": "https://a", "title": "A", "raw_content": "全文"}]}
-    searcher, mock_client = _make_searcher(monkeypatch, resp, include_raw_content=True)
+    """传 include_raw_content="markdown" 时,实际向 Tavily 请求 markdown 全文,raw_content 填充(供入库)。"""
+    resp = {"results": [{"url": "https://a", "title": "A", "raw_content": "# 全文\n..."}]}
+    searcher, mock_client = _make_searcher(monkeypatch, resp, include_raw_content="markdown")
     r = searcher.search("q")
-    assert r.sources[0].raw_content == "全文"
+    assert r.sources[0].raw_content == "# 全文\n..."
     _, kwargs = mock_client.search.call_args
-    assert kwargs["include_raw_content"] is True
+    assert kwargs["include_raw_content"] == "markdown"

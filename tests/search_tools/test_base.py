@@ -47,6 +47,26 @@ def test_format_for_agent_no_title_only_url() -> None:
     assert " — " not in out  # 无 title 不应出现 " — " 分隔
 
 
+def test_format_for_agent_prefers_raw_content() -> None:
+    """有 raw_content 全文时优先输出全文,且不再输出 content 短片段。"""
+    resp = SearchResponse(
+        query="x",
+        sources=[
+            Source(
+                url="https://a",
+                title="A",
+                content="短片段",
+                raw_content="# 全文\n正文",
+            )
+        ],
+    )
+    out = format_for_agent(resp)
+    assert "# 全文" in out
+    assert "正文" in out
+    # 有全文时不再附带短片段
+    assert "短片段" not in out
+
+
 def test_format_for_agent_empty() -> None:
     """无 answer 且无 sources 时返回空串。"""
     resp = SearchResponse(query="x")

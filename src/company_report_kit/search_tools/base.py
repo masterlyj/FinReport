@@ -52,13 +52,14 @@ class WebSearcher(Protocol):
 
 
 def format_for_agent(response: SearchResponse) -> str:
-    """把搜索结果格式化成供 agent 阅读的文本(总结 + 逐条来源,来源可附片段)。
+    """把搜索结果格式化成供 agent 阅读的文本(总结 + 逐条来源,来源附全文或片段)。
 
     Args:
         response: 搜索工具返回的统一结果。
 
     Returns:
-        总结文本在前,其后列出全部来源(有片段则附摘要);无内容时返回空串。
+        总结文本在前,其后列出全部来源;每条来源优先取 raw_content 全文,
+        无全文时退回 content 短片段;均无则只留标题与 url。
     """
     parts: list[str] = []
     if response.answer:
@@ -71,8 +72,11 @@ def format_for_agent(response: SearchResponse) -> str:
             # "标题 — url",无标题时只留 url,避免行首多余分隔符。
             line = f"{title} — {s.url}" if title else s.url
             parts.append(f"{i}. {line}")
-            if s.content:
-                # 压缩多余空白/换行成单行,给 agent 原始材料(DeepSeek 无明文片段,不输出)。
+            if s.raw_content:
+                # markdown 全文,保留换行/结构(供 agent 阅读原文)。
+                parts.append(s.raw_content.rstrip())
+            elif s.content:
+                # 无全文时退回短片段,压缩多余空白/换行成单行。
                 snippet = " ".join(s.content.split())
                 parts.append(f"   {snippet}")
     return "\n".join(parts) if parts else ""
