@@ -33,7 +33,7 @@ class Configuration(BaseModel):
     # --- endpoint 配置（所有节点共用）---
     api_base: str = Field(
         default="",
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "string",
                 "default": "",
@@ -43,7 +43,7 @@ class Configuration(BaseModel):
     )
     api_key: str = Field(
         default="",
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "string",
                 "default": "",
@@ -55,7 +55,7 @@ class Configuration(BaseModel):
     # --- 流程控制 ---
     allow_clarification: bool = Field(
         default=True,
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "boolean",
                 "default": True,
@@ -65,7 +65,7 @@ class Configuration(BaseModel):
     )
     max_concurrent_research_units: int = Field(
         default=3,
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "slider",
                 "default": 3,
@@ -78,7 +78,7 @@ class Configuration(BaseModel):
     )
     max_researcher_iterations: int = Field(
         default=6,
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "slider",
                 "default": 6,
@@ -92,7 +92,7 @@ class Configuration(BaseModel):
 
     max_react_tool_calls: int = Field(
         default=10,
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "slider",
                 "default": 10,
@@ -107,7 +107,7 @@ class Configuration(BaseModel):
     # --- 模型配置 ---
     research_model: str = Field(
         default="deepseek-v4-flash",
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "string",
                 "default": "deepseek-v4-flash",
@@ -117,7 +117,7 @@ class Configuration(BaseModel):
     )
     research_model_max_tokens: int = Field(
         default=65536,
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "number",
                 "default": 65536,
@@ -127,7 +127,7 @@ class Configuration(BaseModel):
     )
     final_report_model: str = Field(
         default="deepseek-v4-flash",
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "string",
                 "default": "deepseek-v4-flash",
@@ -137,7 +137,7 @@ class Configuration(BaseModel):
     )
     final_report_model_max_tokens: int = Field(
         default=65536,
-        metadata={
+        json_schema_extra={
             "x_oap_ui_config": {
                 "type": "number",
                 "default": 65536,

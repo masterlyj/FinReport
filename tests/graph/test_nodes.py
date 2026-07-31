@@ -6,9 +6,13 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
+from langchain_core.runnables import RunnableConfig
 
 from company_report_kit.graph.nodes import clarify_with_user
+from company_report_kit.graph.state import AgentState
 
 
 @pytest.mark.anyio
@@ -16,5 +20,8 @@ async def test_clarify_skip_when_disabled() -> None:
     """allow_clarification=False 时直接跳 write_brief,不调 LLM。"""
     # 关闭澄清:节点应短路放行,无需 LLM 即可决策
     config = {"configurable": {"allow_clarification": False}}
-    cmd = await clarify_with_user(state={"messages": []}, config=config)  # type: ignore[arg-type]
+    cmd = await clarify_with_user(
+        state=cast(AgentState, {"messages": []}),
+        config=cast(RunnableConfig, config),
+    )
     assert cmd.goto == "write_brief"
