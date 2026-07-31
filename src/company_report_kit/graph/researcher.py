@@ -55,8 +55,8 @@ async def researcher(
     )
     system_prompt = research_system_prompt.format(mcp_prompt="", date=get_today_str())
     messages = [SystemMessage(content=system_prompt)] + state.get("researcher_messages", [])
-    _log("researcher", f"topic={state.get('research_topic', '')[:60]}")
     response = await research_model.ainvoke(messages)
+    _log("researcher", f"topic={state.get('research_topic', '')[:60]}")
     return Command(
         goto="researcher_tools",
         update={
@@ -122,8 +122,8 @@ async def compress_research(
     researcher_messages = list(state.get("researcher_messages", []))
     researcher_messages.append({"role": "user", "content": compress_research_simple_human_message})
     system_prompt = compress_research_system_prompt.format(date=get_today_str())
-    _log("compress_research", f"topic={state.get('research_topic', '')[:60]}")
     response = await synthesizer.ainvoke([SystemMessage(content=system_prompt)] + researcher_messages)
+    _log("compress_research", f"topic={state.get('research_topic', '')[:60]}")
 
     from langchain_core.messages import filter_messages
     raw_notes = "\n".join(

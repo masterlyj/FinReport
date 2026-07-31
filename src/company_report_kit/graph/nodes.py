@@ -71,8 +71,8 @@ async def clarify_with_user(
         messages=get_buffer_string(state["messages"]),
         date=get_today_str(),
     )
-    _log("clarify_with_user", "调用 LLM 判断是否需追问")
     response: ClarifyWithUser = await clarification_model.ainvoke(
+    _log("clarify_with_user", "LLM 判断完成")
         [HumanMessage(content=prompt_content)]
     )
     if response.need_clarification:
@@ -110,8 +110,8 @@ async def write_brief(
         messages=get_buffer_string(state.get("messages", [])),
         date=get_today_str(),
     )
-    _log("write_brief", "调用 LLM 生成研究简报")
     response: ResearchQuestion = await research_model.ainvoke(
+    _log("write_brief", "研究简报生成完成")
         [HumanMessage(content=prompt_content)]
     )
     research_brief = response.research_brief
@@ -167,8 +167,8 @@ async def supervisor(
     supervisor_messages = state.get("supervisor_messages", [])
     from langchain_core.messages import AIMessage
     _iter = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
-    _log("supervisor", f"iterations={_iter} 调用 LLM 决策")
     response = await research_model.ainvoke(supervisor_messages)
+    _log("supervisor", f"iterations={_iter} 决策完成")
     return Command(
         goto="supervisor_tools",
         update={
