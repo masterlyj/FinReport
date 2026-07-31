@@ -60,3 +60,28 @@ def test_search_raw_content_when_enabled(monkeypatch: pytest.MonkeyPatch) -> Non
     assert r.sources[0].raw_content == "# 全文\n..."
     _, kwargs = mock_client.search.call_args
     assert kwargs["include_raw_content"] == "markdown"
+
+
+def test_tool_wires_markdown_and_finance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """@tool tavily_web_search 默认拉 markdown 全文 + topic=finance,且不请求 include_answer。"""
+    from company_report_kit.search_tools.tavily_search import tavily_web_search
+
+    mock_client = MagicMock()
+    mock_client.search.return_value = {
+        "results": [
+            {"url": "https://a", "title": "A", "content": "片段", "raw_content": "# 标题\n正文"}
+        ]
+    }
+    monkeypatch.setattr(
+        "company_report_kit.search_tools.tavily_search.TavilyClient",
+        lambda **_: mock_client,
+    )
+    out = tavily_web_search.invoke({"query": "q", "max_results": 2})
+    # 调用参数:topic 固定 finance、拉 markdown 全文、不请求 Tavily 内置 answer
+    _, kwargs = mock_client.search.call_args
+    assert kwargs["topic"] == "finance"
+    assert kwargs["include_raw_content"] == "markdown"
+    assert "include_answer" not in kwargs
+    assert kwargs["max_results"] == 2
+    # 返回文本含 raw 全文(format_for_agent 优先输出全文)
+    assert "# 标题" in out and "正文" in out

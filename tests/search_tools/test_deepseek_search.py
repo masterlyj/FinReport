@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
 
 from company_report_kit.search_tools.deepseek_search import _parse_message
 
@@ -71,3 +74,42 @@ def test_parse_no_text_answer_none() -> None:
     resp = _parse_message("q", msg)
     assert resp.answer is None
     assert len(resp.sources) == 1
+
+
+def _make_message() -> SimpleNamespace:
+    """构造一条完整 Anthropic 响应:一个 web_search 结果 + 最终答案。"""
+    return SimpleNamespace(
+        content=[_wsr([_result("https://a", "A")]), _text("最终答案")]
+    )
+
+
+def test_search_with_mock_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """DeepSeekSearcher.search 走 mock Anthropic,验 tools 传入与 _parse_message 接线。"""
+    from company_report_kit.search_tools import deepseek_search as mod
+
+    mock_messages = MagicMock()
+    mock_messages.create.return_value = _make_message()
+    monkeypatch.setattr(mod.Anthropic, "__init__", lambda self, **_: None)
+    monkeypatch.setattr(
+        mod.Anthropic, "messages", SimpleNamespace(create=mock_messages.create)
+    )
+    searcher = mod.DeepSeekSearcher(api_key="sk-x")
+    resp = searcher.search("query")
+    # tools 透传 Anthropic 服务端 web_search 工具
+    _, kwargs = mock_messages.create.call_args
+    assert kwargs["tools"] == [mod._WEB_SEARCH_TOOL]
+    assert kwargs["messages"] == [{"role": "user", "content": "query"}]
+    # 结果走 _parse_message:答案与来源均映射
+    assert resp.answer == "最终答案"
+    assert resp.sources[0].url == "https://a"
+
+
+def test_get_default_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_default 返回模块级单例,重复调用同对象(复用连接池)。"""
+    from company_report_kit.search_tools import deepseek_search as mod
+
+    monkeypatch.setattr(mod.Anthropic, "__init__", lambda self, **_: None)
+    monkeypatch.setattr(mod, "_default", None)
+    a = mod._get_default()
+    b = mod._get_default()
+    assert a is b
