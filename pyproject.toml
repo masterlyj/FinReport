@@ -31,6 +31,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+# 默认 deselect network/live:日常只跑单元+组件(F/R/I)。
+# 跑真实集成手动 opt-in:pytest -m live / pytest -m network / pytest -o addopts=""
+addopts = "-m 'not network and not live'"
 markers = [
     "network: 需网络访问(DDG/extract,无需 key)",
     "live: 需真实 API key(DeepSeek/Tavily)",

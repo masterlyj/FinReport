@@ -72,9 +72,9 @@ async def clarify_with_user(
         date=get_today_str(),
     )
     response: ClarifyWithUser = await clarification_model.ainvoke(
-    _log("clarify_with_user", "LLM 判断完成")
         [HumanMessage(content=prompt_content)]
     )
+    _log("clarify_with_user", "LLM 判断完成")
     if response.need_clarification:
         _log("clarify_with_user", "需追问")
         return Command(
