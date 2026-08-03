@@ -111,9 +111,9 @@ async def write_brief(
         date=get_today_str(),
     )
     response: ResearchQuestion = await research_model.ainvoke(
-    _log("write_brief", "研究简报生成完成")
         [HumanMessage(content=prompt_content)]
     )
+    _log("write_brief", "研究简报生成完成")
     research_brief = response.research_brief
 
     # interrupt() 暂停图执行，把简报回传用户.
