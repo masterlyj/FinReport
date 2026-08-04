@@ -1,0 +1,21 @@
+src/company_report_kit/graph/researcher.py
+  s_9b8d91e935b3eb::t_5a8f933861d96e 161-163
+run_snapshot.py
+  s_9b8d91e935b3eb::t_dbfe95e06ea8bc 122-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "f16bf6a620e3cf6909863aa414fd0982f8df4f96",
+  "prompts": {},
+  "sessions": {
+    "s_9b8d91e935b3eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ca0667a-3941-4ba6-a19d-d92ba526e77d",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
