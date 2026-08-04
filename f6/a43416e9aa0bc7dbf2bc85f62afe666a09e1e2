@@ -1,0 +1,19 @@
+src/company_report_kit/prompts.py
+  s_9b8d91e935b3eb::t_92d3cebd00df74 167,169-171,178,188-193
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "f6a43416e9aa0bc7dbf2bc85f62afe666a09e1e2",
+  "prompts": {},
+  "sessions": {
+    "s_9b8d91e935b3eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ca0667a-3941-4ba6-a19d-d92ba526e77d",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
