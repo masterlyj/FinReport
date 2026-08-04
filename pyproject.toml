@@ -16,6 +16,7 @@ dependencies = [
     "langgraph-cli[inmem]>=0.4.31",
     "python-dotenv>=1.2.2",
     "tavily-python>=0.7.26",
+    "trafilatura>=2.2.0",
 ]
 
 [project.optional-dependencies]

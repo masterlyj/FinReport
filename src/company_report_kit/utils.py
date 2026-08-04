@@ -70,8 +70,9 @@ def get_model_config(
         configurable: Configuration 实例，提供 api_key.
         model: 纯模型名（如 deepseek-v4-flash），加 deepseek: 前缀路由到 ChatDeepSeek.
         max_tokens: 单次调用最大输出 token.
-        thinking: 是否开启思考模式. 结构化输出节点需 False（strict 要求），
-            报告生成节点可 True（提升逻辑性）.
+        thinking: 是否开启思考模式. 默认 False——结构化输出（strict）节点
+            必须关闭思考（DeepSeek 思考模式不支持 strict 的强制 tool_choice，
+            会报 400）；仅报告生成节点可传 True 提升逻辑性.
 
     Returns:
         含 model/max_tokens/api_key/extra_body/tags 的配置 dict.

@@ -15,7 +15,7 @@ ResearchQuestion），这些既是 LLM 输出 schema，也是工具调用参数�
 对齐 open_deep_research 的单次 HIL 模式.
 """
 
-from typing import Annotated, Callable, Optional, TypeVar
+from typing import Annotated, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -51,6 +51,42 @@ def override_reducer(current_value, new_value):
 ###################
 # 结构化输出模型
 ###################
+class SourceGrouping(BaseModel):
+    """researcher 分组节点的一次 LLM 结构化输出：把若干来源聚成事件簇.
+
+    同一事件（公司+事件类型+关键数值一致）或同一文章转载的来源聚为一簇，
+    每簇只保留一个代表 URL 作正文引用，其余为佐证 URL 供附录溯源.
+    孤立来源单独成簇（仅代表 URL）.
+
+    Attributes:
+        event_summary: 该簇报道的事件简述，用于报告写作时指代该事件.
+        key_facts: 从来源原文精炼总结的关键事实，供 final_report 写作引用，
+            避免报告 LLM 因缺少细节而幻觉.
+        primary_url: 代表 URL，正文引用时挂它（优先选一手/权威/信息最全源）.
+        supporting_urls: 佐证 URL 列表，与代表 URL 报道同一事件，进附录/证据库.
+    """
+
+    event_summary: str = Field(description="该簇报道的事件简述（一句话）.")
+    key_facts: str = Field(description="从来源原文精炼总结的关键事实.")
+    primary_url: str = Field(description="代表 URL，优先一手/权威/信息最全来源.")
+    supporting_urls: list[str] = Field(default_factory=list, description="佐证 URL 列表，报道同一事件的其他来源.")
+
+
+class SourceGroupingBatch(BaseModel):
+    """分组节点对一批来源的一次完整 LLM 输出.
+
+    与单次 SourceGrouping 的区别：本模型一次输出全部簇，供分组节点
+    把整批 URL+title+snippet 聚成事件簇，避免两两比较的平方成本.
+
+    Attributes:
+        clusters: 全部事件簇. 孤立来源单独成簇（无佐证 URL）.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    clusters: list[SourceGrouping] = Field(description="全部事件簇，每簇一个代表 URL + 佐证 URL 列表.")
+
+
 class ConductResearch(BaseModel):
     """supervisor 调用此工具派发研究任务给 researcher 子图.
 
