@@ -1,0 +1,20 @@
+run_snapshot.py
+  s_9b8d91e935b3eb::t_2ece08082596cb 1-108,110-145
+  s_9b8d91e935b3eb::t_f219b31b0818ea 109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "ae7f371783ea6e2ec0969cb2fcf15bfc5d4d91d8",
+  "prompts": {},
+  "sessions": {
+    "s_9b8d91e935b3eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ca0667a-3941-4ba6-a19d-d92ba526e77d",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
