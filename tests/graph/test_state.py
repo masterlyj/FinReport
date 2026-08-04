@@ -44,15 +44,15 @@ def test_last_value_overwrites() -> None:
 
 
 def test_researcher_output_state_defaults() -> None:
-    """ResearcherOutputState 仅 compressed_research 必填,raw_notes 默认空。"""
-    o = ResearcherOutputState(compressed_research="摘要")
-    assert o.compressed_research == "摘要"
+    """ResearcherOutputState 仅 section_text 必填,raw_notes 默认空。"""
+    o = ResearcherOutputState(section_text="章节")
+    assert o.section_text == "章节"
     assert o.raw_notes == []
 
 
 def test_researcher_output_state_raw_notes_settable() -> None:
     """raw_notes 可显式注入(供 supervisor_tools 汇聚)。"""
-    o = ResearcherOutputState(compressed_research="x", raw_notes=["n1", "n2"])
+    o = ResearcherOutputState(section_text="x", raw_notes=["n1", "n2"])
     assert o.raw_notes == ["n1", "n2"]
 
 

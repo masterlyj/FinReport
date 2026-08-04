@@ -165,7 +165,6 @@ async def supervisor(
         max_concurrent_research_units=configurable.max_concurrent_research_units,
     )
     supervisor_messages = state.get("supervisor_messages", [])
-    from langchain_core.messages import AIMessage
     _iter = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
     response = await research_model.ainvoke(supervisor_messages)
     _log("supervisor", f"iterations={_iter} 决策完成")
@@ -188,7 +187,6 @@ async def supervisor_tools(
     """
     configurable = Configuration.from_runnable_config(config)
     supervisor_messages = state.get("supervisor_messages", [])
-    from langchain_core.messages import AIMessage
     research_iterations = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
     most_recent = supervisor_messages[-1]
 
@@ -216,7 +214,7 @@ async def supervisor_tools(
             if isinstance(observation, Exception):
                 all_tool_messages.append(ToolMessage(content=f"研究失败: {observation}", name=tc["name"], tool_call_id=tc["id"]))
                 continue
-            all_tool_messages.append(ToolMessage(content=observation.get("compressed_research", "研究压缩失败"), name=tc["name"], tool_call_id=tc["id"]))
+            all_tool_messages.append(ToolMessage(content=observation.get("section_text", "研究章节生成失败"), name=tc["name"], tool_call_id=tc["id"]))
         for tc in overflow:
             all_tool_messages.append(ToolMessage(content=f"超出并行上限", name="ConductResearch", tool_call_id=tc["id"]))
         all_raw = []
@@ -292,7 +290,6 @@ async def final_report_generation(
                 findings = findings[:findings_char_limit]
                 _log("final_report_generation", f"token 超限，截断到 {findings_char_limit} 字符重试")
             else:
-                import asyncio
                 _log("final_report_generation", f"API 失败({type(e).__name__})，第 {current_retry} 次重试")
                 await asyncio.sleep(2 ** current_retry)
             if current_retry <= max_retries:

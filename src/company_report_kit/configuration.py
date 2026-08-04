@@ -14,20 +14,6 @@ class Configuration(BaseModel):
 
     所有字段带 x_oap_ui_config metadata，可在 LangGraph Studio 的
     "Manage Assistants" 面板可视化配置，无需改代码.
-
-    Attributes:
-        api_base: OpenAI 兼容 endpoint 的 base URL. 空字符串表示用 SDK 默认地址.
-        api_key: 对应 endpoint 的 API key.
-        allow_clarification: 是否在研究前向用户追问澄清. 关闭则直接进入 brief 生成.
-        max_concurrent_research_units: supervisor 并行派发的 researcher 子图上限.
-            默认 3，避免触发 endpoint rate limit.
-        max_researcher_iterations: supervisor 反思轮数上限. 超过即结束研究阶段，
-            防止无限循环消耗 token.
-        research_model: 研究 LLM 模型名（clarify/write_brief/supervisor/researcher）.
-            纯模型名，不含 provider 前缀，如 "deepseek-v4-flash".
-        research_model_max_tokens: 研究模型单次调用最大输出 token.
-        final_report_model: 最终报告生成 LLM 模型名. 可与研究模型不同.
-        final_report_model_max_tokens: 报告模型单次调用最大输出 token.
     """
 
     # --- endpoint 配置（所有节点共用）---

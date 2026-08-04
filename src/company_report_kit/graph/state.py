@@ -20,6 +20,7 @@ from typing import Annotated, Optional, TypeVar
 T = TypeVar("T")
 
 def last_value(current: T, new: T) -> T:
+    """覆盖式标量 reducer：直接取新值，丢弃旧值（计数器场景）."""
     return new
 
 from langchain_core.messages import MessageLikeRepresentation
@@ -52,19 +53,7 @@ def override_reducer(current_value, new_value):
 # 结构化输出模型
 ###################
 class SourceGrouping(BaseModel):
-    """researcher 分组节点的一次 LLM 结构化输出：把若干来源聚成事件簇.
-
-    同一事件（公司+事件类型+关键数值一致）或同一文章转载的来源聚为一簇，
-    每簇只保留一个代表 URL 作正文引用，其余为佐证 URL 供附录溯源.
-    孤立来源单独成簇（仅代表 URL）.
-
-    Attributes:
-        event_summary: 该簇报道的事件简述，用于报告写作时指代该事件.
-        key_facts: 从来源原文精炼总结的关键事实，供 final_report 写作引用，
-            避免报告 LLM 因缺少细节而幻觉.
-        primary_url: 代表 URL，正文引用时挂它（优先选一手/权威/信息最全源）.
-        supporting_urls: 佐证 URL 列表，与代表 URL 报道同一事件，进附录/证据库.
-    """
+    """把若干来源聚成事件簇：同一事件/转载聚一簇，孤立来源单独成簇."""
 
     event_summary: str = Field(description="该簇报道的事件简述（一句话）.")
     key_facts: str = Field(description="从来源原文精炼总结的关键事实.")
@@ -73,14 +62,7 @@ class SourceGrouping(BaseModel):
 
 
 class SourceGroupingBatch(BaseModel):
-    """分组节点对一批来源的一次完整 LLM 输出.
-
-    与单次 SourceGrouping 的区别：本模型一次输出全部簇，供分组节点
-    把整批 URL+title+snippet 聚成事件簇，避免两两比较的平方成本.
-
-    Attributes:
-        clusters: 全部事件簇. 孤立来源单独成簇（无佐证 URL）.
-    """
+    """分组节点一次输出全部事件簇，避免两两比较的平方成本."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -107,15 +89,7 @@ class ResearchComplete(BaseModel):
 
 
 class ClarifyWithUser(BaseModel):
-    """clarify 节点的 LLM 结构化输出，判断是否需要向用户追问.
-
-    阶段 2 接 init_chat_model 后，clarify_with_user 节点用此模型约束 LLM 输出.
-
-    Attributes:
-        need_clarification: 是否需要追问. True 则返回 question 暂停图执行.
-        question: 需要追问时返回给用户的问题.
-        verification: 无需追问时返回给用户的确认信息，表示开始研究.
-    """
+    """clarify 节点的 LLM 结构化输出，判断是否需要向用户追问."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -131,16 +105,7 @@ class ClarifyWithUser(BaseModel):
 
 
 class ResearchQuestion(BaseModel):
-    """write_brief 节点的 LLM 结构化输出，生成研究简报.
-
-    阶段 2 接 init_chat_model 后，write_brief 节点用此模型约束 LLM 输出，
-    产出结构化 research_brief 驱动后续 supervisor.
-    write_brief 产出后直接 interrupt 等待人工确认，由 brief 承担 PRD
-    第 5 节的"研究计划生成与人工确认"环节.
-
-    Attributes:
-        research_brief: 研究简报，将用于指导后续研究.
-    """
+    """write_brief 节点的 LLM 结构化输出，生成研究简报."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -220,21 +185,17 @@ class ResearcherState(TypedDict):
     researcher_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     tool_call_iterations: Annotated[int, last_value] = 0
     research_topic: str
-    compressed_research: str
+    clusters: list[SourceGrouping] = []
+    section_text: str = ""
     raw_notes: Annotated[list[str], override_reducer] = []
 
 
 class ResearcherOutputState(BaseModel):
     """researcher 子图的输出 schema，显式控制回传父图的字段.
 
-    独立于 ResearcherState，只暴露压缩后结果和原始笔记，
-    屏蔽 researcher_messages / tool_call_iterations 等内部状态，
-    避免子图内部消息流污染 supervisor 的 supervisor_messages.
-
-    Attributes:
-        compressed_research: 压缩后的研究摘要，供 supervisor 决策.
-        raw_notes: 原始工具输出，汇聚到主图 raw_notes 供最终报告引用.
+    只暴露章节文本和原始笔记，屏蔽 researcher_messages / tool_call_iterations /
+    clusters 等内部状态，避免子图内部消息流污染 supervisor.
     """
 
-    compressed_research: str
+    section_text: str
     raw_notes: Annotated[list[str], override_reducer] = []
