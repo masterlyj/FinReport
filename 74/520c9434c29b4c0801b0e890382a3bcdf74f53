@@ -1,0 +1,21 @@
+tests/test_prompts.py
+  s_ea962fe070e6b6::t_fe47c3e7ef26db 1-151
+tests/graph/test_graph.py
+  s_ea962fe070e6b6::t_b79c9715bc480c 1-100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "74520c9434c29b4c0801b0e890382a3bcdf74f53",
+  "prompts": {},
+  "sessions": {
+    "s_ea962fe070e6b6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ba2dc858-2e86-4669-9e8e-0bd635f2c62d",
+        "model": "qwen3.7-plus"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
