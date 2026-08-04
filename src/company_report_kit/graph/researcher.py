@@ -1,13 +1,14 @@
-"""researcher 子图：单个研究主题的搜索-反思-压缩循环.
+"""researcher 子图：单个研究主题的搜索-反思-分组-写章节循环.
 
-三节点：
+四节点：
   researcher        — LLM + bind_tools([duckduckgo_web_search, ddg_extract_url, think_tool])，产出工具调用
   researcher_tools  — 并行执行工具调用，循环回 researcher 或跳 compress
-  compress_research — LLM 把研究消息按事件分组压缩成结构化 notes
+  compress_research — LLM 把搜索结果按事件分组去重，产出 clusters
+  write_section     — LLM 基于 clusters 写本维度报告章节(markdown 含脚注引用)
 
 researcher 搜索后若摘要信息不足，可自主调 ddg_extract_url 抓取重要来源全文；
-compress_research 把全部来源(含抓回的全文)一次性交给 LLM 按事件分组，
-每簇选代表 URL 作正文引用、其余为佐证 URL，产出 notes 回传 supervisor.
+compress_research 把全部来源一次性交给 LLM 按事件分组去重；
+write_section 基于分组结果写章节，产出 section_text 回传主 agent.
 """
 
 import asyncio
@@ -28,6 +29,7 @@ from company_report_kit.graph.state import (
 from company_report_kit.prompts import (
     group_sources_into_events_prompt,
     research_system_prompt,
+    write_section_prompt,
 )
 from company_report_kit.search_tools import ddg_extract_url, duckduckgo_web_search
 from company_report_kit.utils import RETRY_KWARGS, configurable_model, get_model_config, get_today_str, think_tool
@@ -112,16 +114,16 @@ async def researcher_tools(
     return Command(goto="researcher", update={"researcher_messages": tool_outputs})
 
 
-def _clusters_to_notes(clusters: list[SourceGrouping]) -> str:
-    """把事件簇列表转成 notes 文本(事件简述 + 关键事实 + 正文引用 + 佐证 URL)."""
+def _clusters_to_text(clusters: list[SourceGrouping]) -> str:
+    """把事件簇列表格式化成供 write_section LLM 阅读的文本."""
     parts: list[str] = []
-    for c in clusters:
-        lines = [f"事件: {c.event_summary}"]
+    for i, c in enumerate(clusters, start=1):
+        lines = [f"事件 {i}: {c.event_summary}"]
         if c.key_facts:
-            lines.append(f"关键事实: {c.key_facts}")
-        lines.append(f"正文引用: {c.primary_url}")
+            lines.append(f"  关键事实: {c.key_facts}")
+        lines.append(f"  正文引用: {c.primary_url}")
         if c.supporting_urls:
-            lines.append("佐证来源: " + ", ".join(c.supporting_urls))
+            lines.append(f"  佐证来源: {', '.join(c.supporting_urls)}")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)
 
@@ -129,12 +131,7 @@ def _clusters_to_notes(clusters: list[SourceGrouping]) -> str:
 async def compress_research(
     state: ResearcherState, config: RunnableConfig
 ) -> dict:
-    """对 researcher 收集的来源做事件簇分组,产出结构化 notes.
-
-    搜索结果经 format_for_agent 格式化后作为 ToolMessage.content,本节点
-    直接拼接这些文本一次性交给 LLM 按事件分组(同一事件/转载聚一簇,
-    孤立单独成簇),每簇选代表 URL 作正文引用、其余为佐证 URL.
-    """
+    """对 researcher 收集的来源做事件簇分组,产出 clusters 供 write_section 使用."""
     from langchain_core.messages import filter_messages
 
     researcher_messages = list(state.get("researcher_messages", []))
@@ -142,11 +139,10 @@ async def compress_research(
         str(m.content) for m in filter_messages(researcher_messages, include_types=["tool", "ai"])
     )
 
-    # 搜索结果文本(每条已是"来源:..."格式),供 LLM 分组.
     search_texts = [str(m.content) for m in researcher_messages if getattr(m, "type", "") == "tool"]
     if not search_texts:
-        _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 无来源,降级")
-        return {"compressed_research": raw_notes or "未找到可用来源", "raw_notes": [raw_notes]}
+        _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 无来源")
+        return {"clusters": [], "raw_notes": [raw_notes]}
 
     configurable = Configuration.from_runnable_config(config)
     model_config = get_model_config(
@@ -165,9 +161,35 @@ async def compress_research(
     _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 分组完成 {len(response.clusters)} 簇")
 
     return {
-        "compressed_research": _clusters_to_notes(response.clusters),
+        "clusters": response.clusters,
         "raw_notes": [raw_notes],
     }
+
+
+async def write_section(
+    state: ResearcherState, config: RunnableConfig
+) -> dict:
+    """基于分组结果写本维度的报告章节(markdown 含脚注引用)."""
+    clusters = state.get("clusters", [])
+    topic = state.get("research_topic", "")
+
+    if not clusters:
+        _log("write_section", f"topic={topic[:60]} 无 clusters,跳过")
+        return {"section_text": "公开信息有限，未能获取足够数据撰写本章节。"}
+
+    configurable = Configuration.from_runnable_config(config)
+    model_config = get_model_config(
+        configurable, configurable.research_model, configurable.research_model_max_tokens
+    )
+    writer = configurable_model.with_retry(**RETRY_KWARGS).with_config(model_config)
+    prompt_content = write_section_prompt.format(
+        topic=topic[:80],
+        clusters=_clusters_to_text(clusters),
+    )
+    response = await writer.ainvoke([HumanMessage(content=prompt_content)])
+    _log("write_section", f"topic={topic[:60]} 章节完成 {len(str(response.content))} 字符")
+
+    return {"section_text": str(response.content)}
 
 
 # researcher 子图编译
@@ -179,6 +201,8 @@ researcher_builder = StateGraph(
 researcher_builder.add_node("researcher", researcher)
 researcher_builder.add_node("researcher_tools", researcher_tools)
 researcher_builder.add_node("compress_research", compress_research)
+researcher_builder.add_node("write_section", write_section)
 researcher_builder.add_edge(START, "researcher")
-researcher_builder.add_edge("compress_research", END)
+researcher_builder.add_edge("compress_research", "write_section")
+researcher_builder.add_edge("write_section", END)
 researcher_subgraph = researcher_builder.compile()

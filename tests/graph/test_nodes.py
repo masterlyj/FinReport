@@ -84,7 +84,7 @@ async def test_supervisor_tools_no_tool_calls_exits() -> None:
 @pytest.mark.anyio
 async def test_supervisor_tools_dispatches_and_loops(monkeypatch: pytest.MonkeyPatch) -> None:
     """ConductResearch 派发:researcher 结果压成 ToolMessage 回 supervisor 继续循环。"""
-    fake = FakeSubgraph(result={"compressed_research": "压缩笔记", "raw_notes": ["raw1"]})
+    fake = FakeSubgraph(result={"section_text": "压缩笔记", "raw_notes": ["raw1"]})
     monkeypatch.setattr("company_report_kit.graph.nodes.researcher_subgraph", fake)
     state = cast(AgentState, {
         "supervisor_messages": _sup_messages([_tc("ConductResearch", {"research_topic": "电池"})]),
@@ -101,7 +101,7 @@ async def test_supervisor_tools_dispatches_and_loops(monkeypatch: pytest.MonkeyP
 @pytest.mark.anyio
 async def test_supervisor_tools_overflow_capped(monkeypatch: pytest.MonkeyPatch) -> None:
     """5 个 ConductResearch 超 max_concurrent(3),多余 2 个标「超出并行上限」。"""
-    fake = FakeSubgraph(result={"compressed_research": "n", "raw_notes": []})
+    fake = FakeSubgraph(result={"section_text": "n", "raw_notes": []})
     monkeypatch.setattr("company_report_kit.graph.nodes.researcher_subgraph", fake)
     calls = [_tc("ConductResearch", {"research_topic": f"t{i}"}, cid=f"c{i}") for i in range(5)]
     state = cast(AgentState, {
@@ -136,7 +136,7 @@ async def test_supervisor_tools_researcher_exception(monkeypatch: pytest.MonkeyP
 @pytest.mark.anyio
 async def test_supervisor_tools_exceeded_exits(monkeypatch: pytest.MonkeyPatch) -> None:
     """research_iterations 超 max_researcher_iterations(6)时,执行完工具后退出。"""
-    fake = FakeSubgraph(result={"compressed_research": "n", "raw_notes": []})
+    fake = FakeSubgraph(result={"section_text": "n", "raw_notes": []})
     monkeypatch.setattr("company_report_kit.graph.nodes.researcher_subgraph", fake)
     state = cast(AgentState, {
         # 7 个 AIMessage > 默认 max_researcher_iterations(6)
