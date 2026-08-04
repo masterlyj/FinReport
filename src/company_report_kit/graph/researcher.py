@@ -158,6 +158,9 @@ async def compress_research(
     response: SourceGroupingBatch = await grouping_model.ainvoke(
         [HumanMessage(content=prompt_content)]
     )
+    if response is None or not response.clusters:
+        _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 分组返回空,降级")
+        return {"clusters": [], "raw_notes": [raw_notes]}
     _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 分组完成 {len(response.clusters)} 簇")
 
     return {

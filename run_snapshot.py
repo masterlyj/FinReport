@@ -119,7 +119,11 @@ async def review_report(report: str, config: RunnableConfig) -> str:
     print(f"审查:提取 {len(footnotes)} 个脚注 URL 正文...")
     extractor = DuckDuckGoExtractor()
     urls = list(footnotes.values())
-    texts = await asyncio.gather(*[extractor.extract(u) for u in urls], return_exceptions=True)
+    # extract 是同步方法,用 to_thread 包装让 return_exceptions 能捕获异常
+    texts = await asyncio.gather(
+        *[asyncio.to_thread(extractor.extract, u) for u in urls],
+        return_exceptions=True,
+    )
 
     sources_text = "\n\n".join(
         f"[^{num}] {url}\n{(t if isinstance(t, str) else f'提取失败: {t}')[:800]}"
