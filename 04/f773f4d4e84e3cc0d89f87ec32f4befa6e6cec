@@ -1,0 +1,39 @@
+src/company_report_kit/workflows/snapshot.py
+  s_e6401f27951d43::t_068ea60a4d423a 24,34,53-55,57-58,60-61,81,85,89,91,94-96,105-110,113,121,123,127,130-132,134
+  s_e6401f27951d43::t_be0543f07ecadd 35
+tests/test_prompts.py
+  s_7a25700d187a93::t_adfd834bb6ea85 197-198,200-202
+  s_7a25700d187a93::t_30ae6c0a036dcd 154-155,159,162-166,168,172,177
+src/company_report_kit/workflows/review.py
+  s_e6401f27951d43::t_be0543f07ecadd 126
+  s_e6401f27951d43::t_068ea60a4d423a 22,27,29-43,50,53,59,65-70,73-74,94-97,104-106,111,113,122-125,128-129,147-149
+tests/test_run_snapshot.py
+  s_e6401f27951d43::t_068ea60a4d423a 72-74,78-83,85,155,158,161-162,165,171-172,180,186-189,194,198-200,208,213-215
+  s_7a25700d187a93::t_85419aaa7b995a 232-233,237-238,250-252
+src/company_report_kit/prompts.py
+  s_e6401f27951d43::t_068ea60a4d423a 341,347-350,352,354
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "04f773f4d4e84e3cc0d89f87ec32f4befa6e6cec",
+  "prompts": {},
+  "sessions": {
+    "s_7a25700d187a93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acde0dff-e51d-4892-be9a-558af47cbebc",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    },
+    "s_e6401f27951d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4039ce7e-247a-4527-b15f-17985cac4366",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
