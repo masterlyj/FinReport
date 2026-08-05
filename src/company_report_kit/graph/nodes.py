@@ -2,10 +2,10 @@
 
 流程：
   clarify_with_user → write_brief(interrupt) → supervisor ⇄ supervisor_tools
-  → final_report_generation → END
+  → assemble_report(拼接) → polish_report(润色) → END
 
 clarify/write_brief 用 with_structured_output(strict=True) 关思考模式获取结构化输出.
-final_report 开思考模式提升报告逻辑性.
+assemble_report 纯代码拼接各 researcher 章节;polish_report LLM 润色行文不新增事实.
 supervisor 用 bind_tools 决策派发，supervisor_tools 用 ainvoke 并行调用 researcher_subgraph.
 """
 
@@ -28,8 +28,8 @@ from company_report_kit.graph.state import (
 from company_report_kit.logging_utils import get_logger
 from company_report_kit.prompts import (
     clarify_with_user_instructions,
-    final_report_generation_prompt,
     lead_researcher_prompt,
+    polish_report_prompt,
     transform_messages_into_research_topic_prompt,
 )
 from company_report_kit.utils import (
@@ -40,6 +40,7 @@ from company_report_kit.utils import (
     think_tool,
     RETRY_KWARGS,
 )
+from company_report_kit.workflows.assembly import assemble_sections
 
 logger = get_logger("graph.nodes")
 
@@ -213,11 +214,16 @@ async def supervisor_tools(
         _log("supervisor_tools", f"派发 {len(allowed)} 个 researcher(overflow {len(overflow)})")
         research_tasks = [researcher_subgraph.ainvoke({"researcher_messages": [HumanMessage(content=tc["args"]["research_topic"])], "research_topic": tc["args"]["research_topic"]}, config) for tc in allowed]
         tool_results = await asyncio.gather(*research_tasks, return_exceptions=True)
+        # 按派发顺序收集章节(gather 保序),供主图 assemble_sections 拼接
+        sections_per_round: list[str] = []
         for observation, tc in zip(tool_results, allowed):
             if isinstance(observation, Exception):
                 all_tool_messages.append(ToolMessage(content=f"研究失败: {observation}", name=tc["name"], tool_call_id=tc["id"]))
+                sections_per_round.append("")
                 continue
-            all_tool_messages.append(ToolMessage(content=observation.get("section_text", "研究章节生成失败"), name=tc["name"], tool_call_id=tc["id"]))
+            section_text = observation.get("section_text", "研究章节生成失败")
+            all_tool_messages.append(ToolMessage(content=section_text, name=tc["name"], tool_call_id=tc["id"]))
+            sections_per_round.append(section_text)
         for tc in overflow:
             all_tool_messages.append(ToolMessage(content=f"超出并行上限", name="ConductResearch", tool_call_id=tc["id"]))
         all_raw = []
@@ -227,8 +233,8 @@ async def supervisor_tools(
         raw_notes_concat = "\n".join(all_raw)
         if exceeded:
             _log("supervisor_tools", "exceeded，执行完工具后退出")
-            return Command(goto="__end__", update={"supervisor_messages": all_tool_messages, "notes": [str(m.content) for m in all_tool_messages], "raw_notes": [raw_notes_concat] if raw_notes_concat else [], "research_brief": state.get("research_brief", "")})
-        return Command(goto="supervisor", update={"supervisor_messages": all_tool_messages, "raw_notes": [raw_notes_concat] if raw_notes_concat else []})
+            return Command(goto="__end__", update={"supervisor_messages": all_tool_messages, "notes": [str(m.content) for m in all_tool_messages], "sections": sections_per_round, "raw_notes": [raw_notes_concat] if raw_notes_concat else [], "research_brief": state.get("research_brief", "")})
+        return Command(goto="supervisor", update={"supervisor_messages": all_tool_messages, "sections": sections_per_round, "raw_notes": [raw_notes_concat] if raw_notes_concat else []})
 
     if exceeded:
         _log("supervisor_tools", "exceeded，退出")
@@ -236,84 +242,89 @@ async def supervisor_tools(
     return Command(goto="supervisor", update={"supervisor_messages": all_tool_messages})
 
 
-async def final_report_generation(
+async def assemble_report(
+    state: AgentState, config: RunnableConfig
+) -> Command[Literal["polish_report"]]:
+    """把各 researcher 章节拼接为完整报告(纯代码,复用 assemble_sections).
+
+    主图改为拼接模式:researcher 各产章节存 state.sections,这里按顺序拼接,
+    不再让 LLM 用 notes 重新生成(避免幻觉)。报告标题用公司名(从 research_brief 推断)。
+
+    Args:
+        state: 主图状态,含 sections(按派发顺序的章节).
+        config: 运行时配置.
+
+    Returns:
+        Command 跳转 polish_report,更新 final_report 为拼接后的草稿.
+    """
+    sections = state.get("sections", [])
+    company = _extract_company(state)
+    report = assemble_sections(company, sections)
+    _log("assemble_report", f"拼接 {len(sections)} 个章节, {len(report)} 字符")
+    return Command(
+        goto="polish_report",
+        update={"final_report": report, "notes": {"type": "override", "value": []}},
+    )
+
+
+def _extract_company(state: AgentState) -> str:
+    """从用户消息或 research_brief 推断公司名,用于报告标题.
+
+    主图无显式 company 参数,优先取用户首条消息(通常含"研究XX");
+    取不到则用 research_brief 首行兜底;都无则用通用标题。
+    """
+    # 优先:用户首条消息(如"研究月之暗面的融资历史"→取"月之暗面")
+    messages = state.get("messages", [])
+    if messages:
+        first = str(getattr(messages[0], "content", "") or "")
+        # 去掉"研究/分析/调研"等前缀动词,取主体
+        for prefix in ("研究", "分析", "调研", "了解"):
+            if first.startswith(prefix):
+                first = first[len(prefix):]
+                break
+        first = first.strip(" 的，。、\n")
+        if first:
+            # 截到首个标点或12字,避免整句当标题
+            for i, ch in enumerate(first):
+                if ch in "，。、的融资竞品团队业务财务历史格局架构模式数据":
+                    first = first[:i]
+                    break
+            if first:
+                return first
+    # 兜底:research_brief 首行
+    brief = state.get("research_brief", "") or ""
+    first_line = next((l.strip(" #。\n") for l in brief.splitlines() if l.strip()), "")
+    return first_line or "公司"
+
+
+async def polish_report(
     state: AgentState, config: RunnableConfig
 ) -> Command[Literal["__end__"]]:
-    """生成最终报告.
+    """对拼接报告做行文润色(不新增/修改事实).
 
-    基于 research_brief + notes + messages 调 LLM 生成报告.
-    开思考模式提升金融报告的逻辑性与深度.
-    token 超限时逐步截断 findings 重试，最多 3 次.
+    读拼接后的 final_report,LLM 润色行文/衔接/标题一致性,输出覆盖 final_report.
+    纯行文润色,严禁改动事实、数字、脚注。
+
+    Args:
+        state: 主图状态,含拼接后的 final_report.
+        config: 运行时配置.
+
+    Returns:
+        Command 到 __end__,更新 final_report 为润色后的报告.
     """
+    draft = state.get("final_report", "")
     configurable = Configuration.from_runnable_config(config)
     model_config = get_model_config(
-        configurable,
-        configurable.final_report_model,
-        configurable.final_report_model_max_tokens,
-        thinking=True,
+        configurable, configurable.research_model, configurable.research_model_max_tokens
     )
-    writer_model = configurable_model.with_config(model_config)
-
-    notes = state.get("notes", [])
-    findings = "\n".join(notes)
-    cleared_state = {"notes": {"type": "override", "value": []}}
-
-    max_retries = 3
-    current_retry = 0
-    findings_char_limit = None
-
-    while current_retry <= max_retries:
-        try:
-            final_report_prompt = final_report_generation_prompt.format(
-                research_brief=state.get("research_brief", ""),
-                messages=get_buffer_string(state.get("messages", [])),
-                findings=findings,
-                date=get_today_str(),
-            )
-            _log("final_report_generation", f"调用 LLM 生成报告（第 {current_retry + 1} 次）")
-            final_report_msg = await writer_model.ainvoke([
-                HumanMessage(content=final_report_prompt)
-            ])
-            return Command(
-                goto="__end__",
-                update={
-                    "final_report": final_report_msg.content,
-                    "messages": [final_report_msg],
-                    **cleared_state,
-                },
-            )
-        except Exception as e:
-            current_retry += 1
-            err_msg = str(e).lower()
-            if "context length" in err_msg or "maximum" in err_msg or "token" in err_msg:
-                if current_retry == 1:
-                    findings_char_limit = 200000
-                else:
-                    findings_char_limit = int(findings_char_limit * 0.9)
-                findings = findings[:findings_char_limit]
-                _log("final_report_generation", f"token 超限，截断到 {findings_char_limit} 字符重试")
-            else:
-                _log("final_report_generation", f"API 失败({type(e).__name__})，第 {current_retry} 次重试")
-                await asyncio.sleep(2 ** current_retry)
-            if current_retry <= max_retries:
-                continue
-            error_report = f"生成报告失败：{e}"
-            return Command(
-                goto="__end__",
-                update={
-                    "final_report": error_report,
-                    "messages": [AIMessage(content=error_report)],
-                    **cleared_state,
-                },
-            )
-
-    error_report = "生成报告失败：重试次数耗尽"
+    polisher = configurable_model.with_retry(**RETRY_KWARGS).with_config(model_config)
+    prompt = polish_report_prompt.format(report=draft)
+    _log("polish_report", f"润色 {len(draft)} 字符的报告")
+    response = await polisher.ainvoke([HumanMessage(content=prompt)])
+    polished = str(response.content)
+    _log("polish_report", f"润色完成, {len(polished)} 字符")
     return Command(
         goto="__end__",
-        update={
-            "final_report": error_report,
-            "messages": [AIMessage(content=error_report)],
-            **cleared_state,
-        },
+        update={"final_report": polished, "messages": [AIMessage(content=polished)]},
     )
 

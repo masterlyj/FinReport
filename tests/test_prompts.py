@@ -43,10 +43,10 @@ def test_lead_researcher_prompt_has_iteration_config() -> None:
     assert "max_concurrent_research_units" in vars
 
 
-def test_final_report_prompt_has_all_four_vars() -> None:
-    """final_report_generation_prompt 需 {research_brief}、{messages}、{date}、{findings}。"""
-    vars = _format_vars(prompts.final_report_generation_prompt)
-    assert set(vars) == {"research_brief", "messages", "date", "findings"}
+def test_polish_report_prompt_has_report_var() -> None:
+    """polish_report_prompt 需 {report} 变量。"""
+    vars = _format_vars(prompts.polish_report_prompt)
+    assert vars == ["report"]
 
 
 def test_research_system_prompt_has_mcp_slot() -> None:
@@ -85,16 +85,10 @@ def test_lead_researcher_prompt_format_succeeds() -> None:
     assert "3" in result  # 并行上限注入
 
 
-def test_final_report_prompt_format_succeeds() -> None:
-    """final_report 模板四变量全部注入后不抛错。"""
-    result = prompts.final_report_generation_prompt.format(
-        research_brief="研究简报",
-        messages="消息历史",
-        date="2026年1月1日",
-        findings="研究发现",
-    )
-    assert "研究简报" in result
-    assert "研究发现" in result
+def test_polish_report_prompt_format_succeeds() -> None:
+    """polish_report_prompt 注入 report 后可成功格式化。"""
+    result = prompts.polish_report_prompt.format(report="# 草稿\n## 1. 章节")
+    assert "# 草稿" in result
 
 
 def test_research_system_prompt_format_with_empty_mcp() -> None:
@@ -130,11 +124,11 @@ def test_lead_researcher_prompt_mentions_all_three_tools() -> None:
     assert "think_tool" in tpl
 
 
-def test_final_report_prompt_has_citation_rules() -> None:
-    """final_report 模板包含引用规则段（Citation Rules + markdown 链接格式）。"""
-    tpl = prompts.final_report_generation_prompt
-    assert "Citation Rules" in tpl
-    assert "[来源标题](URL)" in tpl
+def test_polish_report_prompt_forbids_fact_changes() -> None:
+    """polish_report_prompt 严禁新增/修改事实,只润色行文。"""
+    tpl = prompts.polish_report_prompt
+    assert "严禁新增或修改任何事实" in tpl
+    assert "纯行文润色" in tpl
 
 
 def test_group_sources_prompt_has_grouping_rules() -> None:

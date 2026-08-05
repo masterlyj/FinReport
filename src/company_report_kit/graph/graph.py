@@ -16,8 +16,9 @@ from langgraph.graph import END, START, StateGraph
 
 from company_report_kit.configuration import Configuration
 from company_report_kit.graph.nodes import (
+    assemble_report,
     clarify_with_user,
-    final_report_generation,
+    polish_report,
     supervisor,
     supervisor_tools,
     write_brief,
@@ -36,7 +37,7 @@ supervisor_builder.add_node("supervisor_tools", supervisor_tools)
 supervisor_builder.add_edge(START, "supervisor")
 # supervisor ⇄ supervisor_tools 之间无显式 edge：
 # 跳转由节点返回的 Command goto 决定（supervisor→supervisor_tools，
-# supervisor_tools→supervisor/final_report_generation/__end__）.
+# supervisor_tools→supervisor/__end__）.
 supervisor_subgraph = supervisor_builder.compile()
 
 ###################
@@ -44,7 +45,7 @@ supervisor_subgraph = supervisor_builder.compile()
 ###################
 # research_supervisor 节点挂 supervisor_subgraph 实例，非函数.
 # 主图 AgentState 与 SupervisorState 通过同名字段映射：
-#   research_brief / notes / raw_notes 双向流通
+#   research_brief / notes / raw_notes / sections 双向流通
 #   supervisor_messages 独立于主图 messages，子图内部流转.
 main_builder = StateGraph(
     AgentState,
@@ -54,14 +55,16 @@ main_builder = StateGraph(
 main_builder.add_node("clarify_with_user", clarify_with_user)
 main_builder.add_node("write_brief", write_brief)
 main_builder.add_node("research_supervisor", supervisor_subgraph)
-main_builder.add_node("final_report_generation", final_report_generation)
+main_builder.add_node("assemble_report", assemble_report)
+main_builder.add_node("polish_report", polish_report)
 
-# 显式边：clarify→write_brief 与 supervisor→final_report 是固定流.
+# 显式边：clarify→write_brief 与 supervisor→assemble→polish 是固定流.
 # write_brief→supervisor 由 Command goto 路由（interrupt 后放行），
 # 故不写显式 edge，避免与 Command 跳转冲突.
 main_builder.add_edge(START, "clarify_with_user")
-main_builder.add_edge("research_supervisor", "final_report_generation")
-main_builder.add_edge("final_report_generation", END)
+main_builder.add_edge("research_supervisor", "assemble_report")
+main_builder.add_edge("assemble_report", "polish_report")
+main_builder.add_edge("polish_report", END)
 
 # checkpointer：MemorySaver 内存级，进程退出即丢失.
 # 阶段2换 SqliteSaver 后支持跨进程续跑.

@@ -90,7 +90,7 @@ def get_notes_from_tool_calls(messages: list) -> list[str]:
     """从消息列表提取所有 ToolMessage 的 content 作为 notes.
 
     supervisor_tools 退出研究阶段时调用，把 ConductResearch 的结果汇聚成 notes，
-    供 final_report_generation 引用.
+    供后续追溯/证据库引用（报告已改走 sections 拼接，不再用 notes 生成）.
     """
     from langchain_core.messages import filter_messages
     return [str(m.content) for m in filter_messages(messages, include_types="tool")]

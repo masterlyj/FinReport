@@ -51,13 +51,14 @@ def test_supervisor_subgraph_tools_can_loop_and_exit() -> None:
 
 
 def test_main_graph_has_expected_nodes() -> None:
-    """主图含四个业务节点（不含 __start__）。"""
+    """主图含五个业务节点（不含 __start__）。"""
     node_names = set(graph.nodes.keys()) - {"__start__"}
     assert node_names == {
         "clarify_with_user",
         "write_brief",
         "research_supervisor",
-        "final_report_generation",
+        "assemble_report",
+        "polish_report",
     }
 
 
@@ -70,18 +71,22 @@ def test_main_graph_starts_at_clarify() -> None:
     assert not start_edges[0].conditional  # 固定边，非条件路由
 
 
-def test_main_graph_research_to_final_report_is_fixed() -> None:
-    """research_supervisor → final_report_generation → __end__ 是固定流水线。"""
+def test_main_graph_research_to_polish_is_fixed() -> None:
+    """research_supervisor → assemble_report → polish_report → __end__ 是固定流水线。"""
     edges = graph.get_graph().edges
-    # research_supervisor → final_report_generation
+    # research_supervisor → assemble_report
     r_edges = [e for e in edges if e.source == "research_supervisor"]
     assert len(r_edges) == 1
-    assert r_edges[0].target == "final_report_generation"
+    assert r_edges[0].target == "assemble_report"
     assert not r_edges[0].conditional
-    # final_report_generation → __end__
-    f_edges = [e for e in edges if e.source == "final_report_generation"]
-    assert len(f_edges) == 1
-    assert f_edges[0].target == "__end__"
+    # assemble_report → polish_report
+    a_edges = [e for e in edges if e.source == "assemble_report"]
+    assert len(a_edges) == 1
+    assert a_edges[0].target == "polish_report"
+    # polish_report → __end__
+    p_edges = [e for e in edges if e.source == "polish_report"]
+    assert len(p_edges) == 1
+    assert p_edges[0].target == "__end__"
 
 
 def test_main_graph_clarify_has_conditional_branches() -> None:

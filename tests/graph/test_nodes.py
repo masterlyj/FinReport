@@ -1,7 +1,7 @@
 """graph 节点测试(mock LLM 与 researcher_subgraph,测 Command goto 与状态更新逻辑)。
 
 覆盖 supervisor_tools 路由(完成/无调用/派发/overflow/异常/exceeded)、
-clarify_with_user 启用路径、final_report_generation 重试截断与耗尽兜底。
+clarify_with_user 启用路径、assemble_report 拼接与 polish_report 润色。
 """
 
 from __future__ import annotations
@@ -13,8 +13,9 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.runnables import RunnableConfig
 
 from company_report_kit.graph.nodes import (
+    assemble_report,
     clarify_with_user,
-    final_report_generation,
+    polish_report,
     supervisor_tools,
 )
 from company_report_kit.graph.state import (
@@ -202,44 +203,46 @@ async def test_clarify_proceeds_to_write_brief(monkeypatch: pytest.MonkeyPatch) 
 
 
 # ──────────────────────────────────────────────────────────────
-# final_report_generation 重试与截断
+# assemble_report 拼接 / polish_report 润色
 # ──────────────────────────────────────────────────────────────
 @pytest.mark.anyio
-async def test_final_report_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """一次成功:LLM 返回报告文本,直接落 final_report。"""
-    fake = FakeModel(responses=[AIMessage(content="这是最终报告")])
+async def test_assemble_report_concats_sections() -> None:
+    """assemble_report 把 sections 按顺序拼接成 # 标题 + ## N. 章节。"""
+    state = cast(AgentState, {
+        "sections": ["### 融资历史\n内容A[^1]\n[^1]: [来源](https://a.com)"],
+        "research_brief": "研究月之暗面",
+        "messages": [HumanMessage(content="研究月之暗面")],
+    })
+    cmd = await assemble_report(state, _config())
+    assert cmd.goto == "polish_report"
+    assert cmd.update is not None
+    report = cmd.update["final_report"]
+    # 公司名从用户消息提取(去掉"研究"前缀)
+    assert report.startswith("# 月之暗面研究报告")
+    assert "## 1. 融资历史" in report
+    # notes 被清空(拼接模式下不再用 notes 生成报告)
+    assert cmd.update["notes"] == {"type": "override", "value": []}
+
+
+@pytest.mark.anyio
+async def test_assemble_report_empty_sections() -> None:
+    """无 sections 时仍产出报告标题(占位)。"""
+    state = cast(AgentState, {"sections": [], "research_brief": "研究X公司", "messages": []})
+    cmd = await assemble_report(state, _config())
+    assert cmd.goto == "polish_report"
+    assert cmd.update["final_report"].startswith("# ")
+
+
+@pytest.mark.anyio
+async def test_polish_report_invokes_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """polish_report 调 LLM 润色,输出覆盖 final_report,不新增事实。"""
+    fake = FakeModel(responses=[AIMessage(content="润色后的报告")])
     monkeypatch.setattr("company_report_kit.graph.nodes.configurable_model", fake)
-    state = cast(AgentState, {"notes": ["发现1"], "research_brief": "b", "messages": []})
-    cmd = await final_report_generation(state, _config())
+    state = cast(AgentState, {"final_report": "# 草稿\n## 1. 章节\n内容", "messages": []})
+    cmd = await polish_report(state, _config())
     assert cmd.goto == "__end__"
     assert cmd.update is not None
-    assert cmd.update["final_report"] == "这是最终报告"
+    assert cmd.update["final_report"] == "润色后的报告"
     assert len(fake.invocations) == 1
-
-
-@pytest.mark.anyio
-async def test_final_report_token_retry_then_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """首调 token 超限→截断 findings 重试,二次成功产出报告。"""
-    fake = FakeModel(responses=[
-        Exception("This request exceeds the context length"),
-        AIMessage(content="截断后生成的报告"),
-    ])
-    monkeypatch.setattr("company_report_kit.graph.nodes.configurable_model", fake)
-    state = cast(AgentState, {"notes": ["发现" * 100], "research_brief": "b", "messages": []})
-    cmd = await final_report_generation(state, _config())
-    assert cmd.goto == "__end__"
-    assert cmd.update is not None
-    assert cmd.update["final_report"] == "截断后生成的报告"
-    assert len(fake.invocations) == 2
-
-
-@pytest.mark.anyio
-async def test_final_report_exhausted_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """所有重试均 token 超限→返回「生成报告失败」兜底而非抛错。"""
-    fake = FakeModel(responses=[Exception("context length exceeded")] * 5)
-    monkeypatch.setattr("company_report_kit.graph.nodes.configurable_model", fake)
-    state = cast(AgentState, {"notes": ["发现"], "research_brief": "b", "messages": []})
-    cmd = await final_report_generation(state, _config())
-    assert cmd.goto == "__end__"
-    assert cmd.update is not None
-    assert "生成报告失败" in cmd.update["final_report"]
+    # 草稿进入润色 prompt
+    assert "# 草稿" in fake.invocations[0][0].content

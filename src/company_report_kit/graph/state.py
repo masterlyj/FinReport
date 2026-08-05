@@ -166,6 +166,7 @@ class AgentState(MessagesState):
             同时承担研究范围与方向，驱动后续 supervisor.
         notes: 研究阶段产出的压缩笔记，汇总各 researcher 的 compressed_research.
         raw_notes: 原始工具输出（未经压缩），保留供最终报告引用追溯.
+        sections: researcher 产出的章节文本(按派发顺序),供 assemble_sections 拼接.
         final_report: 最终报告文本.
     """
 
@@ -173,6 +174,7 @@ class AgentState(MessagesState):
     research_brief: Optional[str] = None
     notes: Annotated[list[str], override_reducer] = []
     raw_notes: Annotated[list[str], override_reducer] = []
+    sections: Annotated[list[str], override_reducer] = []
     final_report: Optional[str] = None
 
 
@@ -188,6 +190,7 @@ class SupervisorState(TypedDict):
         notes: 各 researcher 回传的压缩笔记，用 override_reducer 汇聚.
         research_iterations: 当前反思轮数，用于触发 max_researcher_iterations 退出.
         raw_notes: 原始工具输出（未经压缩），保留供最终报告引用追溯.
+        sections: researcher 产出的章节文本(按派发顺序),供主图拼接.
     """
 
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
@@ -195,6 +198,7 @@ class SupervisorState(TypedDict):
     notes: Annotated[list[str], override_reducer] = []
     research_iterations: Annotated[int, last_value] = 0
     raw_notes: Annotated[list[str], override_reducer] = []
+    sections: Annotated[list[str], override_reducer] = []
 
 
 class ResearcherState(TypedDict):
