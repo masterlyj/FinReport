@@ -1,0 +1,24 @@
+tests/test_prompts.py
+  s_7a25700d187a93::t_d48bb264f4c03c 181-196
+src/company_report_kit/graph/state.py
+  s_7a25700d187a93::t_54071509e49767 84
+src/company_report_kit/prompts.py
+  s_7a25700d187a93::t_57b93ff90700b5 350-353
+  s_7a25700d187a93::t_95dea963e10951 334-337
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "c9fe61e37e3192dc2e01dc4581a5f5f9d26585bb",
+  "prompts": {},
+  "sessions": {
+    "s_7a25700d187a93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acde0dff-e51d-4892-be9a-558af47cbebc",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
