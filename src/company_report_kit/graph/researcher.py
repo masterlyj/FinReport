@@ -26,6 +26,7 @@ from company_report_kit.graph.state import (
     SourceGrouping,
     SourceGroupingBatch,
 )
+from company_report_kit.logging_utils import get_logger
 from company_report_kit.prompts import (
     group_sources_into_events_prompt,
     research_system_prompt,
@@ -36,10 +37,12 @@ from company_report_kit.utils import RETRY_KWARGS, configurable_model, get_model
 
 _RESEARCHER_TOOLS = [duckduckgo_web_search, ddg_extract_url, think_tool]
 
+logger = get_logger("graph.researcher")
+
 
 def _log(node: str, msg: str) -> None:
-    """打印节点日志."""
-    print(f"[{node}] {msg}")
+    """记录节点日志."""
+    logger.info("[%s] %s", node, msg)
 
 
 async def researcher(

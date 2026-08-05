@@ -25,6 +25,7 @@ from company_report_kit.graph.state import (
     ResearchComplete,
     ResearchQuestion,
 )
+from company_report_kit.logging_utils import get_logger
 from company_report_kit.prompts import (
     clarify_with_user_instructions,
     final_report_generation_prompt,
@@ -40,10 +41,12 @@ from company_report_kit.utils import (
     RETRY_KWARGS,
 )
 
+logger = get_logger("graph.nodes")
+
 
 def _log(node: str, msg: str) -> None:
-    """打印节点日志，便于在 Studio / 控制台追踪流程."""
-    print(f"[{node}] {msg}")
+    """记录节点日志，便于在 Studio / 控制台追踪流程."""
+    logger.info("[%s] %s", node, msg)
 
 
 async def clarify_with_user(

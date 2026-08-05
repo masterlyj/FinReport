@@ -9,6 +9,9 @@
     2. write_brief: 生成研究简报，显示后等用户确认
     3. supervisor + researcher: 自动搜索研究
     4. final_report: 生成报告，打印并保存到 outputs/
+
+日志走 logging + rich（进度/诊断），面向用户的报告正文/追问/文件路径走
+共享 rich Console 直接输出。
 """
 
 from __future__ import annotations
@@ -26,6 +29,9 @@ from langgraph.types import Command
 load_dotenv()
 
 from company_report_kit.graph.graph import graph
+from company_report_kit.logging_utils import console, get_logger, setup_logging
+
+logger = get_logger("cli.run")
 
 
 def get_config(topic, allow_clarification):
@@ -42,12 +48,12 @@ def get_config(topic, allow_clarification):
 async def run(topic, allow_clarification):
     """跑通用深度报告图,处理 clarify/write_brief 两次人工确认."""
     config = get_config(topic, allow_clarification)
-    print("研究目标: " + topic)
-    print("=" * 60)
+    console.print(f"研究目标: {topic}", style="bold cyan")
+    console.rule()
 
     messages = [HumanMessage(content=topic)]
     while True:
-        print("正在分析请求...")
+        logger.info("正在分析请求...")
         result = await graph.ainvoke({"messages": messages}, config=config)
         state = await graph.aget_state(config)
 
@@ -55,8 +61,8 @@ async def run(topic, allow_clarification):
             msgs = state.values.get("messages", [])
             last_msg = str(msgs[-1].content) if msgs else ""
             if last_msg:
-                print()
-                print("系统追问: " + last_msg)
+                console.print()
+                console.print(f"系统追问: {last_msg}", style="bold yellow")
                 answer = input("请回答（或直接回车跳过追问）: ").strip()
                 if answer:
                     messages = [HumanMessage(content=answer)]
@@ -65,7 +71,7 @@ async def run(topic, allow_clarification):
                     messages = [HumanMessage(content=topic)]
                 continue
             else:
-                print("流程意外结束")
+                logger.error("流程意外结束")
                 return
 
         if "write_brief" in (state.next or ()):
@@ -79,46 +85,38 @@ async def run(topic, allow_clarification):
                             val = getattr(intr, "value", {})
                             if isinstance(val, dict) and "research_brief" in val:
                                 brief = val["research_brief"]
-            print()
-            print("=" * 60)
-            print("研究简报:")
-            print("=" * 60)
+            console.rule("研究简报")
             if brief:
-                print(brief[:500] + ("..." if len(brief) > 500 else ""))
-            print("=" * 60)
+                console.print(brief[:500] + ("..." if len(brief) > 500 else ""))
             confirm = input("确认简报？(回车确认 / 输入修改意见): ").strip()
             if confirm:
                 resume_value = {"feedback": confirm, "approved": False}
             else:
                 resume_value = True
 
-            print()
-            print("正在开展研究（可能需要几分钟）...")
+            logger.info("正在开展研究（可能需要几分钟）...")
             result = await graph.ainvoke(Command(resume=resume_value), config=config)
             break
 
-        print("当前节点: " + str(state.next))
+        logger.info("当前节点: %s", state.next)
         break
 
-    print()
-    print("=" * 60)
-    print("最终报告")
-    print("=" * 60)
+    console.rule("最终报告")
     final_report = result.get("final_report", "")
     if final_report:
-        print(final_report[:2000] + ("..." if len(final_report) > 2000 else ""))
+        console.print(final_report[:2000] + ("..." if len(final_report) > 2000 else ""))
         os.makedirs("outputs", exist_ok=True)
         safe_topic = topic.replace("/", "_").replace(chr(92), "_")[:30]
         filename = "outputs/" + safe_topic + "_" + datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + ".md"
         # CLI 属顶层入口,文件写 outputs/ 用同步 open 即可(非 async 性能关键路径)
         with open(filename, "w", encoding="utf-8") as f:  # noqa: ASYNC230
             f.write(final_report)
-        print()
-        print("报告已保存: " + filename)
+        console.print()
+        console.print(f"报告已保存: {filename}", style="bold green")
     else:
-        print("报告生成失败")
+        logger.error("报告生成失败")
         if result.get("research_brief"):
-            print("研究简报: " + str(result["research_brief"])[:200])
+            logger.error("研究简报: %s", str(result["research_brief"])[:200])
 
 
 def main():
@@ -127,6 +125,7 @@ def main():
     parser.add_argument("topic", help="公司名称或股票代码")
     parser.add_argument("--no-clarify", action="store_true", help="跳过澄清追问")
     args = parser.parse_args()
+    setup_logging()
     asyncio.run(run(args.topic, not args.no_clarify))
 
 
