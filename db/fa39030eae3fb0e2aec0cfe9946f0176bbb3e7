@@ -1,0 +1,30 @@
+main.py
+  s_e6401f27951d43::t_068ea60a4d423a 1-21
+src/company_report_kit/graph/nodes.py
+  s_e6401f27951d43::t_068ea60a4d423a 28,44-45,48-49
+src/company_report_kit/logging_utils.py
+  s_e6401f27951d43::t_068ea60a4d423a 3-5,10-18,20-45,48-88,94-97
+src/company_report_kit/cli/run.py
+  s_e6401f27951d43::t_be0543f07ecadd 13
+  s_e6401f27951d43::t_068ea60a4d423a 14,32-34,51-52,56,64-65,74,88,90,97,101,104,107,114-115,117,119,128
+src/company_report_kit/cli/snapshot.py
+  s_e6401f27951d43::t_068ea60a4d423a 8-10,25,49,53-54,56-57,69-71
+src/company_report_kit/graph/researcher.py
+  s_e6401f27951d43::t_068ea60a4d423a 29,40-41,44-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "dbfa39030eae3fb0e2aec0cfe9946f0176bbb3e7",
+  "prompts": {},
+  "sessions": {
+    "s_e6401f27951d43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4039ce7e-247a-4527-b15f-17985cac4366",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
