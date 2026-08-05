@@ -81,7 +81,7 @@ class ReviewIssue(BaseModel):
     issue_type: Literal["引用错配", "无出处", "口径冲突"] = Field(description="问题类型.")
     report_text: str = Field(description="报告原文片段（含脚注标记）.")
     url: str = Field(description="被指摘的脚注 URL；无出处时可多个 URL 用逗号分隔，无 URL 填空串.")
-    evidence: str = Field(description="原文实际内容或解释，作为修正依据.")
+    evidence: str = Field(description="问题对应 URL 的原文实际内容摘录（保留关键措辞与数字，供修正时对照核实）.")
     action: Literal["fix", "adjudicate"] = Field(
         description="处理动作: fix=反馈给对应 researcher 修正; adjudicate=跨章节口径冲突，主 agent 标注裁决.",
     )

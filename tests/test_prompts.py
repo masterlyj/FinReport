@@ -178,3 +178,19 @@ def test_write_section_prompt_uses_h3_without_numbering() -> None:
     assert "不要带数字编号" in tpl
     # 精确匹配整句,避免 ### 误伤 ## 子串
     assert "使用 ## 作为章节标题" not in tpl
+
+
+def test_review_prompt_guides_evidence_as_excerpt() -> None:
+    """review_prompt 引导"原文实际内容"为原文摘录(保留措辞/数字),非总结转述。"""
+    tpl = prompts.review_prompt
+    assert "摘录对应 URL 原文中的关键语句" in tpl
+    assert "保留原措辞、金额、日期、投资方" in tpl
+    assert "不要总结转述" in tpl
+
+
+def test_review_fix_prompt_relies_on_excerpt() -> None:
+    """review_fix_prompt 引导依据"原文实际"摘录核实修改,而非凭总结猜。"""
+    tpl = prompts.review_fix_prompt
+    assert "对应 URL 原文的关键语句摘录" in tpl
+    assert "依据它核实" in tpl
+    assert "原文未提及" in tpl
