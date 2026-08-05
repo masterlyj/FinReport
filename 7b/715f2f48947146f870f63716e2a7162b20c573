@@ -1,0 +1,137 @@
+tests/graph/test_researcher_subgraph.py
+  s_7a25700d187a93::t_ea8e4f38596153 146-151,156-167
+  s_7a25700d187a93::t_e365f5a5923e29 152
+  s_7a25700d187a93::t_f6f62aa6efc190 119-145
+  s_7a25700d187a93::t_a412c7701ab467 153-155,168-169
+  s_7a25700d187a93::t_9be06b1ef8f659 32-45,52-53,60,97-101
+.gitignore
+  s_7a25700d187a93::t_714834429fe520 313-315
+src/company_report_kit/outlines/unlisted.py
+  s_91b6e8f4000b3e::t_42ceee452dcb4e 1-67
+src/company_report_kit/workflows/review.py
+  s_91b6e8f4000b3e::t_b8cac4256308a6 1-14,16-27,29-42,44-69,71-104,106-115,117-118,122-173
+  s_91b6e8f4000b3e::t_76411d0e23cfe6 120-121
+  s_91b6e8f4000b3e::t_2ee8feba64c2c8 15
+  s_91b6e8f4000b3e::t_b6d883e60c9b5b 28,43
+src/company_report_kit/outlines/__init__.py
+  s_91b6e8f4000b3e::t_3a25ac823f396f 1-14,16,18
+  s_91b6e8f4000b3e::t_3c25583a714329 15
+  s_91b6e8f4000b3e::t_6eb6c3ebb1b2e9 17
+tests/test_run_snapshot.py
+  s_7a25700d187a93::t_470d8f014ce8ad 113-115
+  s_7a25700d187a93::t_24631877ddd55e 133
+  s_91b6e8f4000b3e::t_ded6b321cbddc3 139-140
+  s_7a25700d187a93::t_37950aca763d81 171
+  s_7a25700d187a93::t_09978ce573d4b7 2,5-8,10-12,14-15,19,22-42,44-47,49-57,59-65,69-72,74-76,78-80,141-148,151,153-161,167-168,170,174,176-182,184,186-190,192-193,198,201-202,211,222-227,232,234
+  s_7a25700d187a93::t_a8459ffa834018 228-229
+  s_7a25700d187a93::t_01b12079eaf7b1 238,240-241,244
+  s_7a25700d187a93::t_557459b617de03 165-166
+  s_91b6e8f4000b3e::t_5173e91caa199b 131
+  s_91b6e8f4000b3e::t_b0ab1612602e0b 230-231,233
+  s_91b6e8f4000b3e::t_0a46545f1d8318 124
+  s_91b6e8f4000b3e::t_dc9eaf610692c0 237,242
+  s_7a25700d187a93::t_dffde4fc6e4c6e 81-97,99-112,116-123,125-129,134-135
+  s_7a25700d187a93::t_03688db047f60e 195-197,199-200,203-209,218,220-221
+  s_91b6e8f4000b3e::t_2ad5adbb908cda 68
+  s_91b6e8f4000b3e::t_651850e46dfd95 48
+  s_7a25700d187a93::t_d5dd248eba0c16 13
+  s_7a25700d187a93::t_fb3042fedf3644 43,66-67,136-138,169,191,194,239,243
+  s_91b6e8f4000b3e::t_b69effd51ffc50 212
+  s_7a25700d187a93::t_43c29fd424a666 235-236
+  s_7a25700d187a93::t_5bfe05b8f363d9 162-164
+  s_7a25700d187a93::t_ec8e66ff0ddcfe 9
+  s_7a25700d187a93::t_dbe0be509b8a7c 16
+  s_91b6e8f4000b3e::t_9d8e5c04d65925 183,185
+  s_7a25700d187a93::t_143401fa39f59c 213-216,219
+  s_91b6e8f4000b3e::t_87a0a36ab2f9cd 1,3-4,17-18,20-21
+  s_91b6e8f4000b3e::t_694845e0bc3e56 150,152
+  s_7a25700d187a93::t_0751541eecf7ea 130,132
+  s_91b6e8f4000b3e::t_aa59f2c1ec9b15 210,217
+  s_7a25700d187a93::t_913b4a5c7dbffa 149
+  s_91b6e8f4000b3e::t_df7eb0fa8a4058 172-173,175
+  s_91b6e8f4000b3e::t_bea804dbde2d5c 73,77
+  s_91b6e8f4000b3e::t_05a25a79c472bf 98
+  s_91b6e8f4000b3e::t_6e12739b99273b 58
+src/company_report_kit/cli/run.py
+  s_91b6e8f4000b3e::t_f792e6893a71a5 82,95
+  s_91b6e8f4000b3e::t_4aeda2168ccff3 113-114
+  s_91b6e8f4000b3e::t_a92480d520c048 58
+  s_91b6e8f4000b3e::t_45be43d360fdaa 35
+  s_91b6e8f4000b3e::t_3eea7aa6ae38a4 1,4-5,14-15,32,43,125,134
+  s_91b6e8f4000b3e::t_cd30ba2b316e6c 103,112,116
+src/company_report_kit/graph/state.py
+  s_7a25700d187a93::t_62b5cec8fb6518 90-101
+  s_7a25700d187a93::t_ef6f84ad10bd70 14
+  s_7a25700d187a93::t_07eefdf6959b26 68-89
+  s_91b6e8f4000b3e::t_5b7ec9bb63aa8a 230-236
+src/company_report_kit/cli/__init__.py
+  s_91b6e8f4000b3e::t_474e6c3641e322 1-2,9
+  s_91b6e8f4000b3e::t_f0376a47a1df05 3-8
+src/company_report_kit/workflows/__init__.py
+  s_91b6e8f4000b3e::t_9ab76cd52cbcd0 1-26,29-30
+  s_91b6e8f4000b3e::t_3c06a81d92616f 27-28
+tests/test_utils.py
+  s_7a25700d187a93::t_83af7edfe62fbe 54-60
+tests/test_prompts.py
+  s_7a25700d187a93::t_9d3e3cd36ac33f 172-178
+  s_7a25700d187a93::t_cee3c53b79f675 179-180
+  s_7a25700d187a93::t_12e12b3ccbc9f3 166-171
+  s_7a25700d187a93::t_a8309a64c89243 137
+  s_7a25700d187a93::t_0bf0d4b2497da6 152-165
+src/company_report_kit/graph/graph.py
+  s_91b6e8f4000b3e::t_a14e7dd0202ebc 51
+src/company_report_kit/cli/snapshot.py
+  s_91b6e8f4000b3e::t_61b3a6a27d7726 1-35,37-59,61-62,65,67-73
+  s_91b6e8f4000b3e::t_3884cc187dcdd5 36
+  s_91b6e8f4000b3e::t_0bed9784f40dce 64,66
+  s_91b6e8f4000b3e::t_67a69f5f0e5bcc 60,63
+tests/search_tools/test_tavily_search.py
+  s_7a25700d187a93::t_9dcb744bb27e4a 88-108
+tests/outlines/__init__.py
+  s_91b6e8f4000b3e::t_4dddaaf3c96d5d 1
+src/company_report_kit/workflows/snapshot.py
+  s_91b6e8f4000b3e::t_2356a2ddab28e5 50
+  s_91b6e8f4000b3e::t_4f476adb248108 97
+  s_91b6e8f4000b3e::t_0f5ebda09c59e1 1,3-7,9-11,14-15,24-31,34-35,37-38,42,47-48,77,89,98-100,103-112,114,116,118-124,126-128
+  s_91b6e8f4000b3e::t_1b2a8e7bd7ad48 113,115,117
+  s_91b6e8f4000b3e::t_7e8651ee455861 23
+  s_91b6e8f4000b3e::t_e9e06886a3af52 51-55
+  s_91b6e8f4000b3e::t_1ba311dee32320 94,96,101-102,125
+src/company_report_kit/workflows/assembly.py
+  s_91b6e8f4000b3e::t_c05075fb219f7b 1-53,55-56,61-64
+  s_91b6e8f4000b3e::t_a3968bba530ba5 54,57-60
+src/company_report_kit/prompts.py
+  s_7a25700d187a93::t_017d51c3f6d19b 302,310
+  s_7a25700d187a93::t_64c18372ef65a9 336,338-351
+  s_7a25700d187a93::t_f1b9ee74c8c719 337
+  s_91b6e8f4000b3e::t_3dc574bce60895 205-211
+  s_91b6e8f4000b3e::t_00aeb8b998542e 307-308
+tests/outlines/test_unlisted.py
+  s_91b6e8f4000b3e::t_160a01d23afaad 1-70
+src/company_report_kit/outlines/base.py
+  s_91b6e8f4000b3e::t_a13bd6d4f99f67 1-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "7b715f2f48947146f870f63716e2a7162b20c573",
+  "prompts": {},
+  "sessions": {
+    "s_7a25700d187a93": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "acde0dff-e51d-4892-be9a-558af47cbebc",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    },
+    "s_91b6e8f4000b3e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6db725eb-57ee-473c-bea4-421da26418b4",
+        "model": "ep-07p4u7vn"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
