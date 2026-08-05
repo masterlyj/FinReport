@@ -19,41 +19,59 @@ from langchain_core.runnables import RunnableConfig
 
 from company_report_kit.configuration import Configuration
 from company_report_kit.graph.state import ReviewIssue, ReviewResult
+from company_report_kit.logging_utils import get_logger
 from company_report_kit.prompts import review_fix_prompt, review_prompt
 from company_report_kit.search_tools.ddg_extract import DuckDuckGoExtractor
 from company_report_kit.utils import RETRY_KWARGS, configurable_model, get_model_config
 
+logger = get_logger("workflows.review")
 
-def _format_issue_for_fix(issue: ReviewIssue) -> str:
-    """把一条审查问题格式化成修正 prompt 的条目."""
-    return (
-        f"- 类型: {issue.issue_type}\n"
-        f"  报告原文: {issue.report_text}\n"
-        f"  对应URL: {issue.url or '(无)'}\n"
-        f"  原文实际: {issue.evidence}"
-    )
+
+def _format_issue_for_fix(issue: ReviewIssue, url_cache: dict[str, str]) -> str:
+    """把一条审查问题格式化成修正 prompt 的条目.
+
+    携带问题关联 URL 的完整原文(从 url_cache 取),供修正 LLM 对照核实。
+    issue.url 可能多个 URL 逗号分隔,逐个查 cache;查不到或为空标注"(无原文)"。
+    """
+    urls = [u.strip() for u in issue.url.split(",") if u.strip()]
+    text_lines = [f"- 类型: {issue.issue_type}\n  报告原文: {issue.report_text}"]
+    for u in urls:
+        text_lines.append(f"  对应URL: {u}")
+        text_lines.append(f"  原文: {url_cache.get(u, '(无原文)')}")
+    if not urls:
+        text_lines.append(f"  对应URL: (无)\n  原文实际: {issue.evidence}")
+    return "\n".join(text_lines)
 
 
 async def fix_section(
     topic: str,
     section: str,
     issues: list[ReviewIssue],
+    url_cache: dict[str, str],
     config: RunnableConfig,
 ) -> str:
-    """让 LLM 按审查问题清单修正单章节;修正依据用问题自带 evidence,不重抓 URL.
+    """让 LLM 按审查问题清单修正单章节;修正依据用 url_cache 里的完整原文.
 
     Args:
         topic: 该维度的研究主题（作为修正上下文）.
         section: 原章节文本（含脚注）.
         issues: 该章节待修正的问题列表.
+        url_cache: {url: 完整正文} 映射,由 run_review 抓取后传入,避免重抓.
         config: 运行时配置.
 
     Returns:
         修正后的章节文本.
     """
+    issues_text = "\n".join(_format_issue_for_fix(issue, url_cache) for issue in issues)
+    # 收集本组问题涉及的 URL 原文,供修正 LLM 对照核实
+    source_urls = [u.strip() for issue in issues for u in issue.url.split(",") if u.strip()]
+    sources_text = "\n\n".join(
+        f"{url}\n{url_cache.get(url, '(无原文)')}" for url in dict.fromkeys(source_urls)
+    )
     prompt_content = review_fix_prompt.format(
         topic=topic[:80],
-        issues="\n".join(_format_issue_for_fix(issue) for issue in issues),
+        issues=issues_text,
+        sources=sources_text,
     )
     configurable = Configuration.from_runnable_config(config)
     model_config = get_model_config(
@@ -73,22 +91,26 @@ def _extract_issues(result: ReviewResult | None) -> list[ReviewIssue]:
     return list(result.issues)
 
 
-async def run_review(report: str, config: RunnableConfig) -> list[ReviewIssue] | None:
-    """对完整报告执行一次审查:提取脚注 URL 正文,LLM 结构化校验,返回问题列表.
+async def run_review(
+    report: str, config: RunnableConfig
+) -> tuple[list[ReviewIssue] | None, dict[str, str]]:
+    """对完整报告执行一次审查:提取脚注 URL 正文,LLM 结构化校验.
 
     Args:
         report: 组装后的完整报告(含脚注定义).
         config: 运行时配置.
 
     Returns:
-        问题列表;无脚注或结构化输出失败时返回 None(调用方跳过审查).
+        (issues, url_cache):
+          issues — 问题列表;无脚注或结构化输出失败时为 None(调用方跳过审查).
+          url_cache — {url: 完整正文},供 fix_section 复用,避免重抓。
     """
     # 提取脚注定义里的 URL: [^1]: [标题](URL) 或 [^1]: URL
     footnotes = dict(re.findall(r"\[\^(\d+)\]:\s*(?:\[[^\]]*\]\()?(https?://[^\s)]+)", report))
     if not footnotes:
-        return None
+        return None, {}
 
-    print(f"审查:提取 {len(footnotes)} 个脚注 URL 正文...")
+    logger.info("审查:提取 %s 个脚注 URL 正文...", len(footnotes))
     extractor = DuckDuckGoExtractor()
     urls = list(footnotes.values())
     # extract 是同步方法,用 to_thread 包装让 return_exceptions 能捕获异常
@@ -97,9 +119,14 @@ async def run_review(report: str, config: RunnableConfig) -> list[ReviewIssue] |
         return_exceptions=True,
     )
 
+    # 构建 url_cache:url → 完整正文;extract 失败也进 cache(标注提取失败,供修正判断).
+    url_cache: dict[str, str] = {}
+    for url, t in zip(urls, texts):
+        url_cache[url] = t if isinstance(t, str) else f"提取失败: {t}"
+
     sources_text = "\n\n".join(
-        f"[^{num}] {url}\n{(t if isinstance(t, str) else f'提取失败: {t}')[:800]}"
-        for (num, url), t in zip(footnotes.items(), texts)
+        f"[^{num}] {url}\n{url_cache[url]}"
+        for (num, url), _ in zip(footnotes.items(), texts)
     )
 
     # LLM 对照来源原文做结构化审查;失败按"跳过审查"处理,不阻断流水线
@@ -117,9 +144,9 @@ async def run_review(report: str, config: RunnableConfig) -> list[ReviewIssue] |
     try:
         result = await reviewer.ainvoke([HumanMessage(content=prompt)])
     except Exception as e:  # noqa: BLE001 - 审查失败按跳过处理,不阻断流水线
-        print(f"审查:结构化输出失败,跳过审查: {e}")
-        return None
-    return _extract_issues(result)
+        logger.warning("审查:结构化输出失败,跳过审查: %s", e)
+        return None, url_cache
+    return _extract_issues(result), url_cache
 
 
 def render_review(issues: list[ReviewIssue], label_for) -> str:

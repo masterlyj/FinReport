@@ -151,24 +151,30 @@ def test_research_system_prompt_mentions_search_tool() -> None:
     assert "duckduckgo_web_search" in prompts.research_system_prompt
 
 
-def test_review_fix_prompt_has_topic_and_issues() -> None:
-    """review_fix_prompt 模板含 topic 与 issues 变量,且可 format 成功。"""
+def test_review_fix_prompt_has_topic_issues_and_sources() -> None:
+    """review_fix_prompt 模板含 topic/issues/sources 变量,且可 format 成功。"""
     tpl = prompts.review_fix_prompt
     assert "{topic}" in tpl
     assert "{issues}" in tpl
+    assert "{sources}" in tpl
     # 修正指令要求删除找不到出处的细节
     assert "删除" in tpl
-    result = tpl.format(topic="融资历史", issues="- 类型: 无出处\n  报告原文: xxx")
+    result = tpl.format(
+        topic="融资历史",
+        issues="- 类型: 无出处\n  报告原文: xxx",
+        sources="https://a.com\n原文: 未提及",
+    )
     assert "融资历史" in result
+    assert "https://a.com" in result
 
 
 def test_review_fix_prompt_has_no_orphan_placeholder() -> None:
-    """review_fix_prompt 只含 topic/issues 两个占位符,无孤儿占位符。
+    """review_fix_prompt 只含 topic/issues/sources 三个占位符,无孤儿占位符。
 
     用 Formatter.parse 而非正则:正确跳过 {{ }} 双花括号转义,
     与 _format_vars(其余占位符检测)同一套机制。
     """
-    assert _format_vars(prompts.review_fix_prompt) == ["topic", "issues"]
+    assert _format_vars(prompts.review_fix_prompt) == ["topic", "issues", "sources"]
 
 
 def test_write_section_prompt_uses_h3_without_numbering() -> None:
@@ -188,9 +194,9 @@ def test_review_prompt_guides_evidence_as_excerpt() -> None:
     assert "不要总结转述" in tpl
 
 
-def test_review_fix_prompt_relies_on_excerpt() -> None:
-    """review_fix_prompt 引导依据"原文实际"摘录核实修改,而非凭总结猜。"""
+def test_review_fix_prompt_relies_on_full_text() -> None:
+    """review_fix_prompt 引导依据<来源原文>完整正文核实修改,而非凭总结猜。"""
     tpl = prompts.review_fix_prompt
-    assert "对应 URL 原文的关键语句摘录" in tpl
-    assert "依据它核实" in tpl
-    assert "原文未提及" in tpl
+    assert "<来源原文>" in tpl
+    assert "完整正文" in tpl
+    assert "提取失败" in tpl

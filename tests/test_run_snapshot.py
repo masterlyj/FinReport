@@ -69,13 +69,20 @@ def test_render_review_nonempty_not_pass() -> None:
 
 
 def test_format_issue_for_fix() -> None:
-    """问题条目格式化:含类型/原文/URL/原文实际,无 URL 时兜底(无)."""
-    text = review._format_issue_for_fix(_issue())
+    """问题条目格式化:含类型/原文/URL/原文,URL 有缓存时带完整原文,无 URL 时兜底."""
+    url_cache = {"https://example.com/a": "原文:本轮融资3.2亿美元"}
+    text = review._format_issue_for_fix(_issue(), url_cache)
     assert "类型: 引用错配" in text
     assert "报告原文: 2026年2月完成超7亿美元融资" in text
     assert "对应URL: https://example.com/a" in text
-    text_blank = review._format_issue_for_fix(_issue(url=""))
+    assert "原文: 原文:本轮融资3.2亿美元" in text
+    # URL 无缓存原文时标注"(无原文)"
+    text_missing = review._format_issue_for_fix(_issue(url="https://example.com/other"), url_cache)
+    assert "(无原文)" in text_missing
+    # 无 URL 时兜底用 evidence
+    text_blank = review._format_issue_for_fix(_issue(url=""), url_cache)
     assert "对应URL: (无)" in text_blank
+    assert "原文实际" in text_blank
 
 
 # ---------- 纯逻辑:报告编号层级组装 ----------
@@ -145,20 +152,24 @@ def test_extract_issues_normalizes_shapes() -> None:
 
 @pytest.mark.anyio
 async def test_fix_section_invokes_llm_with_topic_issues(monkeypatch: pytest.MonkeyPatch) -> None:
-    """修正节点:以 topic+问题+原章节为消息,返回修正后的章节文本."""
+    """修正节点:以 topic+问题(含URL原文)+原章节为消息,返回修正后的章节文本."""
     fake = FakeModel(responses=[AIMessage(content="修正后的章节")])
     monkeypatch.setattr(review, "configurable_model", fake)
+    url_cache = {"https://example.com/a": "原文:本轮融资3.2亿美元"}
 
     out = await review.fix_section(
-        "研究X的融资历史", "## 章节\n原内容[^1]\n[^1]: [标题](https://a.com)", [_issue()], _config(),
+        "研究X的融资历史", "## 章节\n原内容[^1]\n[^1]: [标题](https://a.com)",
+        [_issue()], url_cache, _config(),
     )
     assert out == "修正后的章节"
-    # 两条消息:① 修正指令(含 topic 与问题) ② 原章节文本
+    # 两条消息:① 修正指令(含 topic/问题/URL原文) ② 原章节文本
     assert len(fake.invocations) == 1
     msgs = fake.invocations[0]
     assert isinstance(msgs[0], HumanMessage)
     assert "研究X的融资历史" in msgs[0].content
     assert "引用错配" in msgs[0].content
+    # 问题关联 URL 的完整原文已进入修正指令
+    assert "本轮融资3.2亿美元" in msgs[0].content
     # 原章节文本作为第二条消息(子串校验,避免全等脆弱)
     assert "原内容[^1]" in msgs[1].content
     assert "[^1]: [标题](https://a.com)" in msgs[1].content
@@ -166,24 +177,27 @@ async def test_fix_section_invokes_llm_with_topic_issues(monkeypatch: pytest.Mon
 
 @pytest.mark.anyio
 async def test_review_issues_returns_structured_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    """审查:结构化输出返回 ReviewResult,取出问题列表供闭环分组."""
+    """审查:结构化输出返回 ReviewResult,取出问题列表与 url_cache."""
     issues = [_issue(), _issue(section=0, issue_type="口径冲突", action="adjudicate")]
     fake = FakeModel(responses=[ReviewResult(issues=issues)])
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
 
-    out = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
-    assert out == issues
+    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    assert out_issues == issues
+    # url_cache 存了脚注 URL 的完整原文,供 fix_section 复用
+    assert url_cache == {"https://a.com": "原文正文"}
 
 
 @pytest.mark.anyio
 async def test_review_issues_no_footnotes_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """无脚注 URL 时跳过审查(返回 None),不触发 LLM."""
+    """无脚注 URL 时跳过审查(返回 None 与空 cache),不触发 LLM."""
     fake = FakeModel()
     monkeypatch.setattr(review, "configurable_model", fake)
 
-    out = await review.run_review("## 章节\n无脚注", _config())
-    assert out is None
+    out_issues, url_cache = await review.run_review("## 章节\n无脚注", _config())
+    assert out_issues is None
+    assert url_cache == {}
     assert fake.invocations == []
 
 
@@ -191,13 +205,14 @@ async def test_review_issues_no_footnotes_returns_none(monkeypatch: pytest.Monke
 async def test_review_issues_structured_failure_returns_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """结构化输出抛异常时按"跳过审查"处理(返回 None),不阻断流程."""
+    """结构化输出抛异常时按"跳过审查"处理(返回 None),但 url_cache 仍保留原文."""
     fake = FakeModel(responses=[ValueError("no support")])
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
 
-    out = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
-    assert out is None
+    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    assert out_issues is None
+    assert url_cache == {"https://a.com": "原文正文"}
 
 
 @pytest.mark.anyio
@@ -214,11 +229,13 @@ async def test_review_issues_extract_failure_still_reviews(
 
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", _boom_extract)
 
-    out = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
-    assert out == issues
+    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    assert out_issues == issues
     assert len(fake.invocations) == 1  # 一次 ainvoke: LLM 审查
     # 提取失败信息进入 prompt
     assert "提取失败" in fake.invocations[0][0].content
+    # 提取失败也进 url_cache,标注让修正环节知道无法核实
+    assert "提取失败" in url_cache["https://a.com"]
 
 
 @pytest.mark.anyio
@@ -230,8 +247,9 @@ async def test_review_issues_structured_returns_empty_passes(
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
 
-    out = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
-    assert out == []
+    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    assert out_issues == []
+    assert url_cache == {"https://a.com": "原文正文"}
 
 
 def test_group_fixable_issues() -> None:

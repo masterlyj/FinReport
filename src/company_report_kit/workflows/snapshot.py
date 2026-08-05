@@ -21,6 +21,7 @@ from langchain_core.runnables import RunnableConfig
 
 from company_report_kit.graph.researcher import researcher_subgraph
 from company_report_kit.graph.state import ResearcherState, ReviewIssue
+from company_report_kit.logging_utils import get_logger
 from company_report_kit.outlines import UNLISTED_TEMPLATE
 from company_report_kit.workflows.assembly import assemble_sections
 from company_report_kit.workflows.review import (
@@ -29,6 +30,8 @@ from company_report_kit.workflows.review import (
     render_review,
     run_review,
 )
+
+logger = get_logger("workflows.snapshot")
 
 
 async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
@@ -47,16 +50,15 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
     topics = UNLISTED_TEMPLATE.topics_for(company)
     label_for = UNLISTED_TEMPLATE.label_for
 
-    async def _review(text: str) -> tuple[list[ReviewIssue] | None, str]:
-        """跑一次审查;返回(问题列表,渲染文本),无脚注/失败时问题为 None."""
-        issues = await run_review(text, config)
+    async def _review(text: str) -> tuple[list[ReviewIssue] | None, dict[str, str], str]:
+        """跑一次审查;返回(问题列表,url_cache,渲染文本),无脚注/失败时问题为 None."""
+        issues, url_cache = await run_review(text, config)
         if issues is None:
-            return None, "未找到脚注 URL 或审查失败,跳过审查。"
-        return issues, render_review(issues, label_for)
+            return None, url_cache, "未找到脚注 URL 或审查失败,跳过审查。"
+        return issues, url_cache, render_review(issues, label_for)
 
-    print(f"研究目标: {company}")
-    print(f"派发 {len(topics)} 个 researcher 并行研究...")
-    print("=" * 60)
+    logger.info("研究目标: %s", company)
+    logger.info("派发 %s 个 researcher 并行研究...", len(topics))
 
     # 并行派发 researcher 子图(各自搜索→分组→写章节)
     tasks = [
@@ -76,23 +78,22 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
     for i, r in enumerate(results):
         label = label_for(i)
         if isinstance(r, Exception):
-            print(f"  [{label}] 失败: {r}")
+            logger.warning("  [%s] 失败: %s", label, r)
             sections.append(f"## {label}\n\n({label}研究失败: {r})")
         else:
             section = r.get("section_text", "")
-            print(f"  [{label}] 完成, {len(section)} 字符")
+            logger.info("  [%s] 完成, %s 字符", label, len(section))
             sections.append(section)
 
     # 组装(拼接+重编编号)
-    print("=" * 60)
-    print("组装报告...")
+    logger.info("组装报告...")
     report = assemble_sections(company, sections)
-    print(f"组装完成, {len(report)} 字符")
+    logger.info("组装完成, %s 字符", len(report))
 
     # 审查校验
-    print("审查校验...")
-    issues, review = await _review(report)
-    print(f"审查完成: {review[:200]}")
+    logger.info("审查校验...")
+    issues, url_cache, review = await _review(report)
+    logger.info("审查完成: %s", review[:200])
     if issues is None:
         return report, review
 
@@ -101,10 +102,15 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
     fix_groups, adjudicated = group_fixable_issues(issues)
 
     if fix_groups:
-        print(f"修正 {len(fix_groups)} 个章节(问题 {sum(len(v) for v in fix_groups.values())} 条,裁决 {len(adjudicated)} 条)...")
+        logger.info(
+            "修正 %s 个章节(问题 %s 条,裁决 %s 条)...",
+            len(fix_groups),
+            sum(len(v) for v in fix_groups.values()),
+            len(adjudicated),
+        )
         fixed = await asyncio.gather(
             *[
-                fix_section(topics[sec - 1], sections[sec - 1], group, config)
+                fix_section(topics[sec - 1], sections[sec - 1], group, url_cache, config)
                 for sec, group in fix_groups.items()
             ],
             return_exceptions=True,
@@ -112,19 +118,19 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
         for sec, new_section in zip(fix_groups.keys(), fixed):
             label = label_for(sec - 1)
             if isinstance(new_section, Exception):
-                print(f"  [{label}] 修正失败: {new_section}")
+                logger.warning("  [%s] 修正失败: %s", label, new_section)
                 continue
-            print(f"  [{label}] 修正完成, {len(new_section)} 字符")
+            logger.info("  [%s] 修正完成, %s 字符", label, len(new_section))
             sections[sec - 1] = new_section
 
         report = assemble_sections(company, sections)
-        print(f"重新组装完成, {len(report)} 字符")
+        logger.info("重新组装完成, %s 字符", len(report))
 
         # 修正后重审,只作为最终校验,不再二次修正
-        print("重审校验...")
-        _, review = await _review(report)
-        print(f"重审完成: {review[:200]}")
+        logger.info("重审校验...")
+        _, _, review = await _review(report)
+        logger.info("重审完成: %s", review[:200])
     elif adjudicated:
-        print(f"存在 {len(adjudicated)} 条跨章节口径冲突,主 agent 裁决,不触发章节修正。")
+        logger.info("存在 %s 条跨章节口径冲突,主 agent 裁决,不触发章节修正。", len(adjudicated))
 
     return report, review
