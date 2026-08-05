@@ -1,8 +1,8 @@
-"""Company Report Kit 交互式 CLI.
+"""Company Report Kit 交互式 CLI（通用深度报告）.
 
 用法:
-    python run.py "腾讯控股"
-    python run.py "腾讯控股" --no-clarify
+    python -m company_report_kit.cli.run "腾讯控股"
+    python -m company_report_kit.cli.run "腾讯控股" --no-clarify
 
 流程:
     1. clarify: 如需追问，终端显示问题等用户输入
@@ -11,13 +11,13 @@
     4. final_report: 生成报告，打印并保存到 outputs/
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import os
 import sys
 from datetime import datetime
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
@@ -29,9 +29,10 @@ from company_report_kit.graph.graph import graph
 
 
 def get_config(topic, allow_clarification):
+    """构造 LangGraph 运行时配置."""
     return {
         "configurable": {
-            "thread_id": "report-" + datetime.now().strftime("%Y%m%d%H%M%S"),
+            "thread_id": "report-" + datetime.now().astimezone().strftime("%Y%m%d_%H%M%S"),
             "api_key": os.getenv("DEEPSEEK_API_KEY"),
             "allow_clarification": allow_clarification,
         }
@@ -39,6 +40,7 @@ def get_config(topic, allow_clarification):
 
 
 async def run(topic, allow_clarification):
+    """跑通用深度报告图,处理 clarify/write_brief 两次人工确认."""
     config = get_config(topic, allow_clarification)
     print("研究目标: " + topic)
     print("=" * 60)
@@ -53,7 +55,7 @@ async def run(topic, allow_clarification):
             msgs = state.values.get("messages", [])
             last_msg = str(msgs[-1].content) if msgs else ""
             if last_msg:
-                print("")
+                print()
                 print("系统追问: " + last_msg)
                 answer = input("请回答（或直接回车跳过追问）: ").strip()
                 if answer:
@@ -77,7 +79,7 @@ async def run(topic, allow_clarification):
                             val = getattr(intr, "value", {})
                             if isinstance(val, dict) and "research_brief" in val:
                                 brief = val["research_brief"]
-            print("")
+            print()
             print("=" * 60)
             print("研究简报:")
             print("=" * 60)
@@ -90,7 +92,7 @@ async def run(topic, allow_clarification):
             else:
                 resume_value = True
 
-            print("")
+            print()
             print("正在开展研究（可能需要几分钟）...")
             result = await graph.ainvoke(Command(resume=resume_value), config=config)
             break
@@ -98,7 +100,7 @@ async def run(topic, allow_clarification):
         print("当前节点: " + str(state.next))
         break
 
-    print("")
+    print()
     print("=" * 60)
     print("最终报告")
     print("=" * 60)
@@ -107,10 +109,11 @@ async def run(topic, allow_clarification):
         print(final_report[:2000] + ("..." if len(final_report) > 2000 else ""))
         os.makedirs("outputs", exist_ok=True)
         safe_topic = topic.replace("/", "_").replace(chr(92), "_")[:30]
-        filename = "outputs/" + safe_topic + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".md"
-        with open(filename, "w", encoding="utf-8") as f:
+        filename = "outputs/" + safe_topic + "_" + datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + ".md"
+        # CLI 属顶层入口,文件写 outputs/ 用同步 open 即可(非 async 性能关键路径)
+        with open(filename, "w", encoding="utf-8") as f:  # noqa: ASYNC230
             f.write(final_report)
-        print("")
+        print()
         print("报告已保存: " + filename)
     else:
         print("报告生成失败")
@@ -119,6 +122,7 @@ async def run(topic, allow_clarification):
 
 
 def main():
+    """CLI 入口:解析公司名/澄清开关,跑通用深度报告."""
     parser = argparse.ArgumentParser(description="Company Report Kit - 公司深度研究报告生成")
     parser.add_argument("topic", help="公司名称或股票代码")
     parser.add_argument("--no-clarify", action="store_true", help="跳过澄清追问")
@@ -127,4 +131,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

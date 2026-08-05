@@ -85,3 +85,24 @@ def test_tool_wires_markdown_and_finance(monkeypatch: pytest.MonkeyPatch) -> Non
     assert kwargs["max_results"] == 2
     # 返回文本含 raw 全文(format_for_agent 优先输出全文)
     assert "# 标题" in out and "正文" in out
+
+
+def test_search_empty_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    """results 为空列表时,sources 为空、answer 为 None,不抛错。"""
+    searcher, mock_client = _make_searcher(monkeypatch, {"results": []})
+    r = searcher.search("q")
+    assert r.sources == []
+    assert r.answer is None
+
+
+def test_search_client_error_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tavily 调用抛异常时 search 直接抛出(不吞错,由上层降级处理)。"""
+    mock_client = MagicMock()
+    mock_client.search.side_effect = Exception("tavily down")
+    monkeypatch.setattr(
+        "company_report_kit.search_tools.tavily_search.TavilyClient",
+        lambda **_: mock_client,
+    )
+    searcher = TavilySearcher()
+    with pytest.raises(Exception, match="tavily down"):
+        searcher.search("q")

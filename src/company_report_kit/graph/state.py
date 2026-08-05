@@ -4,18 +4,14 @@
 这里只定义跨节点传递的控制流数据结构：当前 brief、topic 列表、notes.
 证据/分析结果/检索 embedding 不进图状态，阶段 2 通过 config 注入 Memory.
 
-对齐 open_deep_research 的三层状态划分：
+对齐三层状态划分：
   AgentState / SupervisorState / ResearcherState / ResearcherOutputState
 并保留其结构化输出模型（ConductResearch / ResearchComplete / ClarifyWithUser /
 ResearchQuestion），这些既是 LLM 输出 schema，也是工具调用参数定义，
 阶段 3 接 Send 派发和阶段 2 接 LLM 时直接复用.
-
-相比原项目，write_brief 节点产出后直接 interrupt 等待人工确认，
-合并了原 PRD 的"研究计划生成与人工确认"环节，由 brief 承担，
-对齐 open_deep_research 的单次 HIL 模式.
 """
 
-from typing import Annotated, Optional, TypeVar
+from typing import Annotated, Literal, Optional, TypeVar
 
 T = TypeVar("T")
 
@@ -67,6 +63,40 @@ class SourceGroupingBatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     clusters: list[SourceGrouping] = Field(description="全部事件簇，每簇一个代表 URL + 佐证 URL 列表.")
+
+
+class ReviewIssue(BaseModel):
+    """审查发现的单条问题（引用错配/无出处/口径冲突）.
+
+    每条问题显式携带所属章节编号与处理动作，供审查→修正闭环按章节归组：
+      - action=fix 的章节反馈给对应 researcher 重新搜索+修正
+      - action=adjudicate 的跨章节问题由主 agent 标注裁决，不交给单个 researcher
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    section: int = Field(
+        description="问题所属章节编号（1=投融资, 2=竞品, 3=团队, 4=业务, 5=财务）. 跨章节问题取 0.",
+    )
+    issue_type: Literal["引用错配", "无出处", "口径冲突"] = Field(description="问题类型.")
+    report_text: str = Field(description="报告原文片段（含脚注标记）.")
+    url: str = Field(description="被指摘的脚注 URL；无出处时可多个 URL 用逗号分隔，无 URL 填空串.")
+    evidence: str = Field(description="原文实际内容或解释，作为修正依据.")
+    action: Literal["fix", "adjudicate"] = Field(
+        description="处理动作: fix=反馈给对应 researcher 修正; adjudicate=跨章节口径冲突，主 agent 标注裁决.",
+    )
+
+
+class ReviewResult(BaseModel):
+    """审查的结构化输出容器.
+
+    with_structured_output(list[ReviewIssue]) 在 DeepSeek 下返回 {"iterable": [...]}
+    而非列表本身,故包一层容器让 langchain 走 pydantic schema 解析路径.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    issues: list[ReviewIssue] = Field(default_factory=list, description="审查发现的全部问题.")
 
 
 class ConductResearch(BaseModel):
@@ -197,5 +227,10 @@ class ResearcherOutputState(BaseModel):
     clusters 等内部状态，避免子图内部消息流污染 supervisor.
     """
 
-    section_text: str
-    raw_notes: Annotated[list[str], override_reducer] = []
+    section_text: str = Field(
+        description="本维度报告章节的 markdown 文本（含脚注引用）.",
+    )
+    raw_notes: Annotated[list[str], override_reducer] = Field(
+        default_factory=list,
+        description="原始工具输出（未经压缩），保留供证据库写入.",
+    )

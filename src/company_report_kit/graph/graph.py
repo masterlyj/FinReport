@@ -48,7 +48,7 @@ supervisor_subgraph = supervisor_builder.compile()
 #   supervisor_messages 独立于主图 messages，子图内部流转.
 main_builder = StateGraph(
     AgentState,
-    input=AgentInputState,
+    input_schema=AgentInputState,
     context_schema=Configuration,
 )
 main_builder.add_node("clarify_with_user", clarify_with_user)

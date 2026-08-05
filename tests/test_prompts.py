@@ -134,7 +134,7 @@ def test_final_report_prompt_has_citation_rules() -> None:
     """final_report 模板包含引用规则段（Citation Rules + markdown 链接格式）。"""
     tpl = prompts.final_report_generation_prompt
     assert "Citation Rules" in tpl
-    assert "[来源标题](URL)" in tpl or "[来源" in tpl
+    assert "[来源标题](URL)" in tpl
 
 
 def test_group_sources_prompt_has_grouping_rules() -> None:
@@ -149,3 +149,32 @@ def test_group_sources_prompt_has_grouping_rules() -> None:
 def test_research_system_prompt_mentions_search_tool() -> None:
     """research_system_prompt 提及 duckduckgo_web_search 作为主要搜索工具。"""
     assert "duckduckgo_web_search" in prompts.research_system_prompt
+
+
+def test_review_fix_prompt_has_topic_and_issues() -> None:
+    """review_fix_prompt 模板含 topic 与 issues 变量,且可 format 成功。"""
+    tpl = prompts.review_fix_prompt
+    assert "{topic}" in tpl
+    assert "{issues}" in tpl
+    # 修正指令要求删除找不到出处的细节
+    assert "删除" in tpl
+    result = tpl.format(topic="融资历史", issues="- 类型: 无出处\n  报告原文: xxx")
+    assert "融资历史" in result
+
+
+def test_review_fix_prompt_has_no_orphan_placeholder() -> None:
+    """review_fix_prompt 只含 topic/issues 两个占位符,无孤儿占位符。
+
+    用 Formatter.parse 而非正则:正确跳过 {{ }} 双花括号转义,
+    与 _format_vars(其余占位符检测)同一套机制。
+    """
+    assert _format_vars(prompts.review_fix_prompt) == ["topic", "issues"]
+
+
+def test_write_section_prompt_uses_h3_without_numbering() -> None:
+    """write_section 模板:章节片段用 ### 标题,不带数字编号。"""
+    tpl = prompts.write_section_prompt
+    assert "### 作为章节标题" in tpl
+    assert "不要带数字编号" in tpl
+    # 精确匹配整句,避免 ### 误伤 ## 子串
+    assert "使用 ## 作为章节标题" not in tpl

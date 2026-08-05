@@ -51,6 +51,13 @@ def test_get_model_config_api_key_passthrough() -> None:
     assert mc["api_key"] == "sk-xxx"
 
 
+def test_get_model_config_empty_api_key_becomes_none() -> None:
+    """api_key 为空串时透传 None(锁住 or None 逻辑,防空串被当 key 传)。"""
+    cfg = Configuration(api_key="")
+    mc = get_model_config(cfg, "m", 100)
+    assert mc["api_key"] is None
+
+
 def test_get_notes_from_tool_calls_extracts_tool_only() -> None:
     """仅取 ToolMessage.content,HumanMessage/AIMessage 不进 notes。"""
     msgs = [

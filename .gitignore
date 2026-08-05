@@ -310,4 +310,7 @@ poetry.toml
 # LSP config files
 pyrightconfig.json
 
+# 运行产物
+outputs/
+
 # End of https://www.toptal.com/developers/gitignore/api/python,node

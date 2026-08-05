@@ -29,11 +29,27 @@ def _config() -> RunnableConfig:
     return cast(RunnableConfig, {"configurable": {}})
 
 
+def _grouping_batch():
+    """构造一个 SourceGroupingBatch(单一事件簇)."""
+    from company_report_kit.graph.state import SourceGroupingBatch
+
+    return SourceGroupingBatch(clusters=[
+        SourceGrouping(
+            event_summary="电池产业链投资事件",
+            key_facts="关键事实细节",
+            primary_url="https://a.com/x",
+            supporting_urls=["https://b.com/y"],
+        )
+    ])
+
+
 @pytest.mark.anyio
 async def test_researcher_subgraph_produces_section_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """完整闭环:researcher 搜索 → compress 分组 → write_section 产出章节。"""
+
+    seen_args: list[dict] = []
 
     class FakeSearch:
         """模拟 duckduckgo_web_search:返回 format_for_agent 格式的来源文本。"""
@@ -41,6 +57,7 @@ async def test_researcher_subgraph_produces_section_text(
         name = "duckduckgo_web_search"
 
         async def ainvoke(self, args, config=None):  # noqa: ANN001
+            seen_args.append(args)
             return "来源:\n1. 标题A — https://a.com/x\n   片段A"
 
     # 四次 ainvoke:① researcher 带 tool_call(搜索)→ 执行后回 researcher;
@@ -77,20 +94,11 @@ async def test_researcher_subgraph_produces_section_text(
     assert "researcher_messages" not in out
     assert "tool_call_iterations" not in out
     assert "clusters" not in out
-
-
-def _grouping_batch():
-    """构造一个 SourceGroupingBatch(单一事件簇)。"""
-    from company_report_kit.graph.state import SourceGroupingBatch
-
-    return SourceGroupingBatch(clusters=[
-        SourceGrouping(
-            event_summary="电池产业链投资事件",
-            key_facts="关键事实细节",
-            primary_url="https://a.com/x",
-            supporting_urls=["https://b.com/y"],
-        )
-    ])
+    # 锁住节点调用次数:researcher×2 + compress×1 + write_section×1,防节点循环数变化静默错位
+    assert len(fake.invocations) == 4
+    # 搜索工具收到预期 query
+    assert len(seen_args) == 1
+    assert seen_args[0]["query"] == "电池产业链"
 
 
 def test_clusters_to_text_shape() -> None:
@@ -108,3 +116,54 @@ def test_clusters_to_text_shape() -> None:
     assert "关键事实: 2026-02由阿里、五源等老股东联合领投" in text
     assert "正文引用: https://a.com" in text
     assert "佐证来源: https://b.com, https://c.com" in text
+
+
+def test_clusters_to_text_multiple_and_no_supporting() -> None:
+    """多簇递增编号;无佐证来源时不输出佐证行。"""
+    clusters = [
+        SourceGrouping(
+            event_summary="A轮融资",
+            key_facts="",
+            primary_url="https://a.com",
+            supporting_urls=[],
+        ),
+        SourceGrouping(
+            event_summary="B轮融资",
+            key_facts="B轮细节",
+            primary_url="https://b.com",
+            supporting_urls=["https://c.com"],
+        ),
+    ]
+    text = _clusters_to_text(clusters)
+    assert "事件 1: A轮融资" in text
+    assert "事件 2: B轮融资" in text
+    # 无佐证来源的簇不输出"佐证来源"行
+    assert "佐证来源" in text  # 簇2有,总文本含
+    assert "事件 1: A轮融资\n" in text
+    # 事件1 无佐证来源 → 其块内无"佐证来源"
+    block1 = text.split("事件 2")[0]
+    assert "佐证来源" not in block1
+
+
+@pytest.mark.anyio
+async def test_researcher_subgraph_empty_clusters_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """compress_research 无来源时,write_section 降级为"公开信息有限"。"""
+    # 仅 1 次 ainvoke:researcher 无工具调用 → 跳 compress(无 tool 消息,不调 LLM)
+    # → write_section 收到空 clusters(不调 LLM),直接降级输出。
+    fake = FakeModel(responses=[AIMessage(content="无更多工具调用")])
+    monkeypatch.setattr("company_report_kit.graph.researcher.configurable_model", fake)
+
+    out = await researcher_subgraph.ainvoke(
+        cast(ResearcherState, {
+            "researcher_messages": [HumanMessage(content="无来源主题")],
+            "research_topic": "无来源主题",
+        }),
+        _config(),
+    )
+
+    # 空 clusters → write_section 输出"公开信息有限"占位
+    assert "公开信息有限" in out["section_text"]
+    # 调用次数:researcher 仅 1 次;compress/write_section 均短路不触发 LLM。
+    assert len(fake.invocations) == 1
