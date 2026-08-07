@@ -282,15 +282,48 @@ section_review_prompt = """你是报告审查员。以下是报告某一维度�
 - 全章问题总数尽量控制在 10 条以内，聚焦最实质的问题；不要为凑数报告大量边缘差异。
 - 若某条问题的判断有不确定成分，severity/confidence 填 low，修正环节会据此谨慎处理。
 
+<示例:引用错配(对照原文确凿,severity/confidence 均 high)>
+章节声称"2026年2月完成超7亿美元融资[^1]",对应 URL 原文为"本轮融资规模为3.2亿美元"。
+数字明显不符,是确凿错配,输出:
+{{
+  "issue_type": "引用错配",
+  "report_text": "2026年2月完成超7亿美元融资[^1]",
+  "url": "https://example.com/financing",
+  "evidence": "原文为:本轮融资规模为3.2亿美元;章节称7亿,数字不符",
+  "section": 1,
+  "action": "fix",
+  "severity": "high",
+  "confidence": "high"
+}}
+
+<示例:无出处(对照确凿缺失,medium/medium)>
+章节声称"月之暗面由清华系团队创立[^2]",对应 URL 原文为产品发布稿,通篇未提及创始团队背景。
+该声称在原文中确凿找不到依据,输出:
+{{
+  "issue_type": "无出处",
+  "report_text": "月之暗面由清华系团队创立[^2]",
+  "url": "https://example.com/product-release",
+  "evidence": "原文为产品发布稿,通篇未提及创始团队背景(原文未提及)",
+  "section": 1,
+  "action": "fix",
+  "severity": "medium",
+  "confidence": "medium"
+}}
+
+<示例:原文无法核实(不报,或 severity/confidence 填 low)>
+章节声称"公司市场份额约15%",对应 URL 原文只提行业整体增长,未给出该公司份额数字。
+此属"原文未提及、凭常识推断",不构成确凿错误——不要报告;若确需保留记录,
+severity/confidence 填 low,修正环节会据此跳过。
+
 输出 ReviewResult：issues 为问题列表，全部通过时返回空列表。每条 issue 填：
 - issue_type：引用错配 / 无出处 / 口径冲突
 - report_text：章节原文片段（含脚注标记）
 - url：被指摘的脚注 URL；无出处时可多个 URL 用逗号分隔，无 URL 填空串
 - evidence：原文实际内容
-- section：固定填 1（由调用方覆盖为真实章节号）
-- action：固定填 fix
-- severity：high / medium / low（事实错误或重大口径出入填 high；一般错配填 medium；存疑填 low）
-- confidence：high / medium / low（对照原文确凿填 high；低置信可能误报填 low）
+- section: 固定填 1（由调用方覆盖为真实章节号）
+- action: 固定填 fix
+- severity: high / medium / low（事实错误或重大口径出入填 high；一般错配填 medium；存疑填 low）
+- confidence: high / medium / low（对照原文确凿填 high；低置信可能误报填 low）
 
 "原文实际内容"(evidence)必须摘录对应 URL 原文中的关键语句，保留原措辞、金额、日期、投资方等具体信息。
 若章节声称与原文不符，此处给出原文是怎么说的；若原文无该信息，注明"原文未提及"。

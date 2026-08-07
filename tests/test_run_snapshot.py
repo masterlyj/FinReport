@@ -16,6 +16,8 @@ from langchain_core.runnables import RunnableConfig
 from company_report_kit.graph.state import ReviewIssue, ReviewResult
 from company_report_kit.outlines import UNLISTED_TEMPLATE
 from company_report_kit.workflows import assembly, review
+from company_report_kit.workflows import snapshot
+from company_report_kit.workflows.snapshot import run_snapshot
 from tests.conftest import FakeModel
 
 LABEL_FOR = UNLISTED_TEMPLATE.label_for
@@ -217,7 +219,78 @@ def test_extract_issues_normalizes_shapes() -> None:
     assert review._extract_issues(None) == []
 
 
-# ---------- LLM 交互:fix_section / _review_issues ----------
+# ---------- 快照级:修正护栏(低置信不触发修正) ----------
+
+
+class _FakeSubgraph:
+    """researcher_subgraph 替身:ainvoke 按 research_topic 返回对应章节(含脚注)。
+
+    run_snapshot 用 asyncio.gather 并行派发,结果按 topic 收集;假子图按 topic
+    包含的维度关键词匹配到固定章节,保证每个 researcher 返回与其维度对应内容。
+    topics_for 返回的是 ResearchDimension.prompt 填充后的整句,故用子串匹配。
+    """
+
+    def __init__(self, sections: list[str]) -> None:
+        self._sections = sections
+
+    async def ainvoke(self, state, _config):  # noqa: ANN001
+        topic = state.get("research_topic", "")
+        for i, key in enumerate(("投融资", "竞品", "团队", "业务", "财务")):
+            if key in topic:
+                return {"section_text": self._sections[i]}
+        return {"section_text": self._sections[0]}
+
+
+@pytest.mark.anyio
+async def test_snapshot_low_confidence_issues_do_not_trigger_fix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """快照级:审查发现的问题全部为低置信(action=fix 但 confidence=low)时,不触发修正。
+
+    护栏(snapshot.py _review_and_fix):fixable = [iss for iss in issues if iss.action=="fix" and iss.confidence!="low"]。
+    低置信问题被过滤,章节保持原样;问题仍渲染进审查结果(不静默丢弃),报告可追溯。
+    """
+    sections = [
+        "### 投融资\n2026年完成融资。[^1]\n[^1]: [融资](https://a.com)",
+        "### 竞品\n竞品A领先。[^1]\n[^1]: [竞品](https://b.com)",
+        "### 团队\n创始人为X。[^1]\n[^1]: [团队](https://c.com)",
+        "### 业务\n主打产品Y。[^1]\n[^1]: [业务](https://d.com)",
+        "### 财务\n营收Z。[^1]\n[^1]: [财务](https://e.com)",
+    ]
+
+    low_issue = {
+        "section": 1,
+        "issue_type": "引用错配",
+        "report_text": "2026年完成融资。[^1]",
+        "url": "https://a.com",
+        "evidence": "原文未提及该融资(存疑)",
+        "action": "fix",
+        "severity": "medium",
+        "confidence": "low",  # 低置信:修正护栏应跳过
+    }
+    # 每章审查都返回同一条低置信问题 → 5 章都不触发修正
+    # 审查/修正模型在 review 模块内使用(review.run_section_review → review.configurable_model),
+    # 故 patch review.configurable_model 而非 snapshot 的。
+    fake = FakeModel(responses=[ReviewResult(issues=[ReviewIssue(**low_issue)])] * 5)
+    monkeypatch.setattr(review, "configurable_model", fake)
+    # DuckDuckGoExtractor 由 review.run_section_review 使用,同样 patch review 模块
+    monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
+    monkeypatch.setattr(snapshot, "researcher_subgraph", _FakeSubgraph(sections))
+
+    report, review_text = await run_snapshot("测试公司", cast(RunnableConfig, {"configurable": {}}))
+
+    # 章节保持原样(修正未触发):原文措辞仍在,脚注号由组装全局重编(不在此断言)
+    assert "2026年完成融资。" in report
+    assert "竞品A领先。" in report
+    assert "创始人为X。" in report
+    assert "主打产品Y。" in report
+    assert "营收Z。" in report
+    # 审查只调用一次/章(审查节点),未触发修正节点(fix_section 的第二次 ainvoke)
+    # 每章 1 次审查 ainvoke = 5 次;若修正触发会再各加 1 次
+    assert len(fake.invocations) == 5
+    # 低置信问题仍渲染进审查结果(不静默丢弃),供人工复核
+    assert "引用错配" in review_text
+    assert "原文未提及该融资(存疑)" in review_text
 
 
 @pytest.mark.anyio
