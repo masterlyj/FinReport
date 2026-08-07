@@ -81,6 +81,6 @@ def test_think_tool_returns_reflection() -> None:
 
 def test_retry_kwargs_shape() -> None:
     """RETRY_KWARGS 开启指数退避抖动 + 足够次数上限,应对 API 限流。"""
-    # 上限会被按需调大(曾 5,现 8),只守住「重试开启 + 退避」语义,不锁死具体值。
+    # 只守「重试开启 + 退避」语义,不锁死具体值(当前 stop_after_attempt=8)。
     assert RETRY_KWARGS["stop_after_attempt"] >= 5
     assert RETRY_KWARGS["wait_exponential_jitter"] is True

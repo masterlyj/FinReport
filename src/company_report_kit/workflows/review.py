@@ -296,10 +296,7 @@ def render_review(issues: list[ReviewIssue], label_for) -> str:
         return "校验通过"
     lines = [f"共 {len(issues)} 处问题:", ""]
     for i, issue in enumerate(issues, start=1):
-        if issue.section == 0:
-            scope = "跨章节"
-        else:
-            scope = label_for(issue.section - 1)
+        scope = label_for(issue.section - 1)
         lines.extend([
             f"### {i}. [{issue.issue_type}] {scope} (严重度={issue.severity}, 置信={issue.confidence})",
             f"- 报告原文: {issue.report_text}",

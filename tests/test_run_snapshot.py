@@ -49,17 +49,17 @@ def test_render_review_empty_passes() -> None:
 
 
 def test_render_review_lists_issues_with_scope() -> None:
-    """渲染含问题:按章节显示维度标签,跨章节显示"跨章节"."""
+    """渲染含问题:按章节显示维度标签(section 已由调用方 stamp 为真实章号)."""
     issues = [
         _issue(section=1, issue_type="引用错配", report_text="R1"),
         _issue(section=3, issue_type="无出处", report_text="R2", action="fix"),
-        _issue(section=0, issue_type="口径冲突", report_text="R3", action="adjudicate"),
+        _issue(section=5, issue_type="口径冲突", report_text="R3"),
     ]
     text = review.render_review(issues, LABEL_FOR)
     assert "共 3 处问题" in text
     assert "[引用错配] 投融资" in text
     assert "[无出处] 团队" in text
-    assert "[口径冲突] 跨章节" in text
+    assert "[口径冲突] 财务" in text
     assert "R1" in text and "R3" in text
 
 
@@ -248,7 +248,7 @@ async def test_fix_section_invokes_llm_with_topic_issues(monkeypatch: pytest.Mon
 @pytest.mark.anyio
 async def test_review_issues_returns_structured_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """审查:结构化输出返回 ReviewResult,取出问题列表与 url_cache."""
-    issues = [_issue(), _issue(section=0, issue_type="口径冲突", action="adjudicate")]
+    issues = [_issue(), _issue(section=2, issue_type="口径冲突", report_text="R2")]
     fake = FakeModel(responses=[ReviewResult(issues=issues)])
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
