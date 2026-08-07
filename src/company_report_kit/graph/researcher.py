@@ -40,9 +40,37 @@ _RESEARCHER_TOOLS = [duckduckgo_web_search, ddg_extract_url, think_tool]
 logger = get_logger("graph.researcher")
 
 
-def _log(node: str, msg: str) -> None:
-    """记录节点日志."""
-    logger.info("[%s] %s", node, msg)
+def _short_topic(topic: str, maxlen: int = 24) -> str:
+    """把 research_topic 截成短标签(取开头,超长加省略号)。
+
+    5 个 researcher 并行研究不同维度,日志若只打完整 topic 会互相交织且
+    因截断无法区分。用 topic 开头的短标签(如"研究阶跃星辰的融资历史…")
+    让每行日志一眼可辨是哪个维度。
+
+    Args:
+        topic: 研究主题原文.
+        maxlen: 保留的字符数.
+
+    Returns:
+        短标签字符串(可能含省略号).
+    """
+    return topic[:maxlen] + ("…" if len(topic) > maxlen else "")
+
+
+def _log(node: str, msg: str, topic: str = "") -> str:
+    """记录节点日志,可选带研究主题短标签便于区分并行 researcher.
+
+    Args:
+        node: 节点名(researcher / researcher_tools / compress_research / write_section).
+        msg: 日志正文.
+        topic: 研究主题;非空时自动加"[短标签]"前缀.
+
+    Returns:
+        拼接后的短标签(供调用方复用,如单独打 topic).
+    """
+    label = f"[{_short_topic(topic)}] " if topic else ""
+    logger.info("[%s] %s%s", node, label, msg)
+    return label
 
 
 async def researcher(
@@ -66,7 +94,7 @@ async def researcher(
     system_prompt = research_system_prompt.format(mcp_prompt="", date=get_today_str())
     messages = [SystemMessage(content=system_prompt)] + state.get("researcher_messages", [])
     response = await research_model.ainvoke(messages)
-    _log("researcher", f"topic={state.get('research_topic', '')[:60]}")
+    _log("researcher", "搜索中", topic=state.get("research_topic", ""))
     return Command(
         goto="researcher_tools",
         update={
@@ -94,9 +122,10 @@ async def researcher_tools(
     configurable = Configuration.from_runnable_config(config)
     researcher_messages = state.get("researcher_messages", [])
     most_recent = researcher_messages[-1]
+    topic = state.get("research_topic", "")
 
     if not most_recent.tool_calls:
-        _log("researcher_tools", "无工具调用，跳压缩")
+        _log("researcher_tools", "无工具调用，跳压缩", topic=topic)
         return Command(goto="compress_research")
 
     tools_by_name = {t.name: t for t in _RESEARCHER_TOOLS}
@@ -115,7 +144,7 @@ async def researcher_tools(
 
     exceeded = state.get("tool_call_iterations", 0) >= configurable.max_react_tool_calls
     if exceeded:
-        _log("researcher_tools", f"超 max_react_tool_calls={configurable.max_react_tool_calls}，跳压缩")
+        _log("researcher_tools", f"超 max_react_tool_calls={configurable.max_react_tool_calls}，跳压缩", topic=topic)
         return Command(goto="compress_research", update={"researcher_messages": tool_outputs})
     return Command(goto="researcher", update={"researcher_messages": tool_outputs})
 
@@ -141,13 +170,14 @@ async def compress_research(
     from langchain_core.messages import filter_messages
 
     researcher_messages = list(state.get("researcher_messages", []))
+    topic = state.get("research_topic", "")
     raw_notes = "\n".join(
         str(m.content) for m in filter_messages(researcher_messages, include_types=["tool", "ai"])
     )
 
     search_texts = [str(m.content) for m in researcher_messages if getattr(m, "type", "") == "tool"]
     if not search_texts:
-        _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 无来源")
+        _log("compress_research", "无来源", topic=topic)
         return {"clusters": [], "raw_notes": [raw_notes]}
 
     configurable = Configuration.from_runnable_config(config)
@@ -165,9 +195,9 @@ async def compress_research(
         [HumanMessage(content=prompt_content)]
     )
     if response is None or not response.clusters:
-        _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 分组返回空,降级")
+        _log("compress_research", "分组返回空,降级", topic=topic)
         return {"clusters": [], "raw_notes": [raw_notes]}
-    _log("compress_research", f"topic={state.get('research_topic', '')[:60]} 分组完成 {len(response.clusters)} 簇")
+    _log("compress_research", f"分组完成 {len(response.clusters)} 簇", topic=topic)
 
     return {
         "clusters": response.clusters,
@@ -183,7 +213,7 @@ async def write_section(
     topic = state.get("research_topic", "")
 
     if not clusters:
-        _log("write_section", f"topic={topic[:60]} 无 clusters,跳过")
+        _log("write_section", "无 clusters,跳过", topic=topic)
         return {"section_text": "公开信息有限，未能获取足够数据撰写本章节。"}
 
     configurable = Configuration.from_runnable_config(config)
@@ -200,7 +230,7 @@ async def write_section(
         raw_notes=raw_notes,
     )
     response = await writer.ainvoke([HumanMessage(content=prompt_content)])
-    _log("write_section", f"topic={topic[:60]} 章节完成 {len(str(response.content))} 字符")
+    _log("write_section", f"章节完成 {len(str(response.content))} 字符", topic=topic)
 
     return {"section_text": str(response.content)}
 
