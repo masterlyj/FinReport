@@ -178,6 +178,11 @@ def test_write_section_prompt_uses_h3_without_numbering() -> None:
     assert "不要带数字编号" in tpl
     # 精确匹配整句,避免 ### 误伤 ## 子串
     assert "使用 ## 作为章节标题" not in tpl
+    # raw_notes 占位符必须存在:write_section 凭它喂原文细节给 LLM
+    assert "{raw_notes}" in tpl
+    # format 三占位符齐全,不报缺字段
+    formatted = tpl.format(topic="t", clusters="c", raw_notes="r")
+    assert "t" in formatted and "c" in formatted and "r" in formatted
 
 
 def test_review_prompt_guides_evidence_as_excerpt() -> None:

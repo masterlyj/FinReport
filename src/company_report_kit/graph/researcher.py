@@ -188,9 +188,13 @@ async def write_section(
         configurable, configurable.research_model, configurable.research_model_max_tokens
     )
     writer = configurable_model.with_retry(**RETRY_KWARGS).with_config(model_config)
+    # raw_notes 是 compress_research 产出的全文(tool+ai 消息拼接),含原文细节
+    # (金额/日期/人名原话);clusters 只给骨架,write 凭 raw_notes 充实章节
+    raw_notes = "\n\n".join(state.get("raw_notes", []))
     prompt_content = write_section_prompt.format(
         topic=topic[:80],
         clusters=_clusters_to_text(clusters),
+        raw_notes=raw_notes,
     )
     response = await writer.ainvoke([HumanMessage(content=prompt_content)])
     _log("write_section", f"topic={topic[:60]} 章节完成 {len(str(response.content))} 字符")
