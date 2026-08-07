@@ -1,7 +1,7 @@
 """workflows 审查→修正闭环组件测试。
 
-覆盖纯逻辑：审查结果渲染 / 问题条目格式化 / 结构化结果归一化 /
-问题分组，以及 fix_section / run_review 的 LLM 交互(FakeModel 注入 configurable_model)。
+覆盖纯逻辑：审查结果渲染 / 问题条目格式化 / 结构化结果归一化,
+以及 fix_section / run_section_review 的 LLM 交互(FakeModel 注入 configurable_model)。
 """
 
 from __future__ import annotations
@@ -140,6 +140,76 @@ def test_assemble_sections_empty_section_skipped() -> None:
     assert not re.search(r"^## 1\. ", out, re.MULTILINE)  # 无第1章节标题
 
 
+def test_assemble_sections_prunes_orphan_footnote_defs() -> None:
+    """正文未引用的脚注定义(孤儿)被剪除:不占编号、URL 不出现在报告中。
+
+    复现探针场景:write_section 为转载/未引用来源生成了定义却没在正文挂引用。
+    [^2] 定义存在但正文只引用 [^1][^3]——剪除 [^2],剩余按引用顺序重编为 [^1][^2]。
+    """
+    s = """### 融资历史
+正文引用了[^1]和[^3]。
+[^1]: [来源A](https://a.com)
+[^2]: [孤儿转载](https://b.com)
+[^3]: [来源C](https://c.com)"""
+    out = assembly.assemble_sections("公司X", [s])
+    # 孤儿 [^2] 的定义与 URL 被剪除
+    assert "孤儿转载" not in out
+    assert "https://b.com" not in out
+    # 保留的 [^1][^3] 重编为连续的 [^1][^2](定义与正文同步)
+    assert "[^1]: [来源A](https://a.com)" in out
+    assert "[^2]: [来源C](https://c.com)" in out
+    assert "正文引用了[^1]和[^2]。" in out
+
+
+def test_assemble_sections_all_orphan_defs_dropped() -> None:
+    """整节无任何正文引用时,全部脚注定义被剪除(不留悬空定义)."""
+    s = "### 业务\n正文无引用。\n[^1]: [来源](https://a.com)\n[^2]: [来源B](https://b.com)"
+    out = assembly.assemble_sections("公司X", [s])
+    assert "https://a.com" not in out
+    assert "https://b.com" not in out
+    assert "[^1]:" not in out
+
+
+def test_assemble_sections_orphan_does_not_consume_offset() -> None:
+    """孤儿定义不占全局编号:第1节孤儿 [^2] 不影响第2节 [^1] 重编为 [^2]而非 [^3]。"""
+    s1 = "### 融资\n引用[^1]。\n[^1]: [A](https://a.com)\n[^2]: [孤儿](https://b.com)"
+    s2 = "### 业务\n引用[^1]。\n[^1]: [C](https://c.com)"
+    out = assembly.assemble_sections("公司X", [s1, s2])
+    # 第1节只 1 个引用→[^1];第2节 [^1] 重编为 [^2](孤儿没占号)
+    assert "[^2]: [C](https://c.com)" in out
+    assert "https://b.com" not in out
+
+
+def test_assemble_sections_strips_dangling_body_refs() -> None:
+    """正文引用了 [^N] 但无对应定义(悬空引用)时,剥离该 [^N] 标记,不占编号。"""
+    s = "### 融资\n正文A[^1]。\n正文B[^2](无定义)。\n[^1]: [来源A](https://a.com)"
+    out = assembly.assemble_sections("公司X", [s])
+    # 悬空 [^2] 标记被剥离
+    assert "[^2]" not in out
+    # [^1] 保留并重编为 [^1]
+    assert "正文A[^1]。" in out
+    assert "[^1]: [来源A](https://a.com)" in out
+    # 句子本身保留(只是删了断链标记)
+    assert "正文B(无定义)。" in out
+
+
+def test_assemble_sections_prunes_orphan_and_dangling_together() -> None:
+    """同章节同时存在孤儿定义与悬空引用:两者都清理,编号按交集连续重编。"""
+    s = (
+        "### 业务\n"
+        "引用[^1]和[^3]。\n"  # [^3] 悬空(无定义)
+        "[^1]: [A](https://a.com)\n"
+        "[^2]: [孤儿](https://b.com)"  # [^2] 孤儿(未引用)
+    )
+    out = assembly.assemble_sections("公司X", [s])
+    # 孤儿定义 [^2] 删除
+    assert "https://b.com" not in out
+    # 悬空引用 [^3] 剥离,正文只剩 [^1]
+    assert "[^3]" not in out
+    assert "引用[^1]和。" in out
+    assert "[^1]: [A](https://a.com)" in out
+
+
 def test_extract_issues_normalizes_shapes() -> None:
     """归一化:ReviewResult 取 issues;None 返回空列表."""
     issues = [_issue()]
@@ -183,8 +253,9 @@ async def test_review_issues_returns_structured_list(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
 
-    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues == issues
+    assert status is review.ReviewStatus.ISSUES
     # url_cache 存了脚注 URL 的完整原文,供 fix_section 复用
     assert url_cache == {"https://a.com": "原文正文"}
 
@@ -195,9 +266,10 @@ async def test_review_issues_no_footnotes_returns_none(monkeypatch: pytest.Monke
     fake = FakeModel()
     monkeypatch.setattr(review, "configurable_model", fake)
 
-    out_issues, url_cache = await review.run_review("## 章节\n无脚注", _config())
+    out_issues, url_cache, status = await review.run_section_review("## 章节\n无脚注", _config())
     assert out_issues is None
     assert url_cache == {}
+    assert status is review.ReviewStatus.NO_FOOTNOTES
     assert fake.invocations == []
 
 
@@ -210,8 +282,9 @@ async def test_review_issues_structured_failure_returns_none(
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
 
-    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues is None
+    assert status is review.ReviewStatus.FAILED
     assert url_cache == {"https://a.com": "原文正文"}
 
 
@@ -229,8 +302,9 @@ async def test_review_issues_extract_failure_still_reviews(
 
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", _boom_extract)
 
-    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues == issues
+    assert status is review.ReviewStatus.ISSUES
     assert len(fake.invocations) == 1  # 一次 ainvoke: LLM 审查
     # 提取失败信息进入 prompt
     assert "提取失败" in fake.invocations[0][0].content
@@ -247,16 +321,7 @@ async def test_review_issues_structured_returns_empty_passes(
     monkeypatch.setattr(review, "configurable_model", fake)
     monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
 
-    out_issues, url_cache = await review.run_review("## 章节\n[^1]: [标题](https://a.com)", _config())
+    out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues == []
     assert url_cache == {"https://a.com": "原文正文"}
-
-
-def test_group_fixable_issues() -> None:
-    """分组逻辑:section>=1 且 action=fix 归入修正;跨章节/adjudicate 归裁决。"""
-    in_range = _issue(section=2, action="fix")
-    cross = _issue(section=0, action="adjudicate")
-    adjudicated_action = _issue(section=1, action="adjudicate")
-    fix_groups, adjudicated = review.group_fixable_issues([in_range, cross, adjudicated_action])
-    assert fix_groups == {2: [in_range]}
-    assert adjudicated == [cross, adjudicated_action]
+    assert status is review.ReviewStatus.PASSED

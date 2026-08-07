@@ -68,22 +68,34 @@ class SourceGroupingBatch(BaseModel):
 class ReviewIssue(BaseModel):
     """审查发现的单条问题（引用错配/无出处/口径冲突）.
 
-    每条问题显式携带所属章节编号与处理动作，供审查→修正闭环按章节归组：
-      - action=fix 的章节反馈给对应 researcher 重新搜索+修正
-      - action=adjudicate 的跨章节问题由主 agent 标注裁决，不交给单个 researcher
+    每条问题携带所属章节编号与处理动作,供 per-section 审查→修正闭环:
+    action=fix 的问题反馈给对应章节 researcher 修正。
+
+    注意: adjudicate(跨章节裁决)是历史遗留字面量,per-section 审查不再
+    检测跨章冲突,实际不会产出;保留仅为给 LLM 一个非 fix 的出口,避免
+    硬解析失败,调用方按 action=='fix' 过滤即可。
     """
 
     model_config = ConfigDict(extra="forbid")
 
     section: int = Field(
-        description="问题所属章节编号（1=投融资, 2=竞品, 3=团队, 4=业务, 5=财务）. 跨章节问题取 0.",
+        description="问题所属章节编号（1=投融资, 2=竞品, 3=团队, 4=业务, 5=财务）.",
     )
     issue_type: Literal["引用错配", "无出处", "口径冲突"] = Field(description="问题类型.")
     report_text: str = Field(description="报告原文片段（含脚注标记）.")
     url: str = Field(description="被指摘的脚注 URL；无出处时可多个 URL 用逗号分隔，无 URL 填空串.")
     evidence: str = Field(description="问题对应 URL 的原文实际内容摘录（保留关键措辞与数字，供修正时对照核实）.")
     action: Literal["fix", "adjudicate"] = Field(
-        description="处理动作: fix=反馈给对应 researcher 修正; adjudicate=跨章节口径冲突，主 agent 标注裁决.",
+        default="fix",
+        description="处理动作: fix=反馈给对应 researcher 修正. adjudicate 历史遗留,per-section 审查不再产出.",
+    )
+    severity: Literal["high", "medium", "low"] = Field(
+        default="medium",
+        description="问题严重度: high=事实错误/重大口径出入, medium=一般错配, low=存疑/轻微. 修正环节优先处理 high.",
+    )
+    confidence: Literal["high", "medium", "low"] = Field(
+        default="medium",
+        description="审查置信度: high=对照原文确凿; medium=较可信; low=低置信(可能误报,修正环节应谨慎/可跳过).",
     )
 
 

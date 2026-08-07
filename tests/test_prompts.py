@@ -181,8 +181,8 @@ def test_write_section_prompt_uses_h3_without_numbering() -> None:
 
 
 def test_review_prompt_guides_evidence_as_excerpt() -> None:
-    """review_prompt 引导"原文实际内容"为原文摘录(保留措辞/数字),非总结转述。"""
-    tpl = prompts.review_prompt
+    """section_review_prompt 引导"原文实际内容"为原文摘录(保留措辞/数字),非总结转述。"""
+    tpl = prompts.section_review_prompt
     assert "摘录对应 URL 原文中的关键语句" in tpl
     assert "保留原措辞、金额、日期、投资方" in tpl
     assert "不要总结转述" in tpl
