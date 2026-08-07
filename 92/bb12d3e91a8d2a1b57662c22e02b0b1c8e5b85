@@ -1,0 +1,24 @@
+src/company_report_kit/workflows/assembly.py
+  s_1d7c6e4442df06::t_8b8005d212f2df 43-44
+  s_1d7c6e4442df06::t_1c402ae97d1ce9 95-96
+  s_1d7c6e4442df06::t_aceb5a57147a3b 42,51
+  s_1d7c6e4442df06::t_8529f84e9a10b6 14-15,17-32
+  s_1d7c6e4442df06::t_a6eb2d49d74314 16
+  s_1d7c6e4442df06::t_d35e8d991d4265 74-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "92bb12d3e91a8d2a1b57662c22e02b0b1c8e5b85",
+  "prompts": {},
+  "sessions": {
+    "s_1d7c6e4442df06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6e1838c-77da-4d48-a036-17f4b79628ec",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
