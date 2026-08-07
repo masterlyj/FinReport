@@ -1,0 +1,30 @@
+pyproject.toml
+  s_228f2a56059976::t_9bb9ed931328c1 17
+  s_1d7c6e4442df06::t_39414dc6e5bf58 18
+.env.example
+  s_228f2a56059976::t_2e9b9089a0efc6 17-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "fbc4f6540d3670f2656ec4adcda1fc7bb1d0bbd3",
+  "prompts": {},
+  "sessions": {
+    "s_1d7c6e4442df06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6e1838c-77da-4d48-a036-17f4b79628ec",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    },
+    "s_228f2a56059976": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c94fc66-cbc8-426d-a8cb-35aad3d7dbde",
+        "model": "deepseek-v4-flash-0731"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
