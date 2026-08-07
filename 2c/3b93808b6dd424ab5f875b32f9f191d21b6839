@@ -1,0 +1,19 @@
+src/company_report_kit/search_tools/ddg_extract.py
+  s_1d7c6e4442df06::t_d4d66b3dba46c5 3-12,21,25-26,29-33,36,41-43,48-52,54-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "2c3b93808b6dd424ab5f875b32f9f191d21b6839",
+  "prompts": {},
+  "sessions": {
+    "s_1d7c6e4442df06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6e1838c-77da-4d48-a036-17f4b79628ec",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
