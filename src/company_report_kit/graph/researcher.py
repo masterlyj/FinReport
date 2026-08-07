@@ -100,8 +100,11 @@ async def researcher_tools(
         return Command(goto="compress_research")
 
     tools_by_name = {t.name: t for t in _RESEARCHER_TOOLS}
+    # 用 .get() 而非 [ ]:模型可能幻觉出不在 _RESEARCHER_TOOLS 里的工具名,
+    # [ ] 抛 KeyError 会中断列表推导、泄漏已建协程(never awaited 警告)。
+    # .get() 返回 None,经 _execute_tool_safely 的 try/except 兜成错误文本回喂 LLM 自纠。
     tasks = [
-        _execute_tool_safely(tools_by_name[tc["name"]], tc["args"], config)
+        _execute_tool_safely(tools_by_name.get(tc["name"]), tc["args"], config)
         for tc in most_recent.tool_calls
     ]
     observations = await asyncio.gather(*tasks)

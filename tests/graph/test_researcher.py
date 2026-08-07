@@ -104,3 +104,39 @@ async def test_execute_tool_safely_returns_result() -> None:
     """工具正常时原样返回结果。"""
     fake = FakeTool("ok", return_value="正常结果")
     assert await _execute_tool_safely(fake, {}, cast(RunnableConfig, {})) == "正常结果"
+
+
+@pytest.mark.anyio
+async def test_researcher_tools_unknown_tool_name_no_keyerror(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """模型幻觉出不在 _RESEARCHER_TOOLS 里的工具名时,不抛 KeyError、不泄漏协程。
+
+    回归 bug:tools_by_name[tc["name"]] 遇未知工具名抛 KeyError,中断列表推导、
+    泄漏已建协程(never awaited 警告)。修法用 .get() 兜底,未知工具经
+    _execute_tool_safely 的 try/except 变成错误文本回喂 LLM 自纠。
+    """
+    fake = FakeTool("duckduckgo_web_search", return_value="搜索结果")
+    monkeypatch.setattr(
+        "company_report_kit.graph.researcher._RESEARCHER_TOOLS", [fake]
+    )
+    state = cast(ResearcherState, {
+        "researcher_messages": [AIMessage(content="", tool_calls=[
+            _tc(name="duckduke_web_search"),   # 错拼,不在工具集
+            _tc(name="duckduckgo_web_search", call_id="c2"),  # 合法
+        ])],
+        "tool_call_iterations": 0,
+    })
+    cmd = await researcher_tools(state, _config())
+    # 不抛 KeyError,goto 正常回 researcher 继续循环
+    assert cmd.goto == "researcher"
+    assert cmd.update is not None
+    tool_msgs = cmd.update["researcher_messages"]
+    # 两个 tool_call 各有一条 ToolMessage
+    assert len(tool_msgs) == 2
+    # 未知工具名:兜底成错误文本
+    assert "工具执行错误" in tool_msgs[0].content
+    assert tool_msgs[0].name == "duckduke_web_search"
+    # 合法工具:正常结果
+    assert tool_msgs[1].content == "搜索结果"
+    assert tool_msgs[1].name == "duckduckgo_web_search"
