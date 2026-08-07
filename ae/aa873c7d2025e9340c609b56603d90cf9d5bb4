@@ -1,0 +1,59 @@
+tests/test_prompts.py
+  s_1d7c6e4442df06::t_d345a55657fef6 184-185
+tests/test_run_snapshot.py
+  s_1d7c6e4442df06::t_bd62d24cbb1318 183-210
+  s_228f2a56059976::t_270244042a94fc 305,307
+  s_228f2a56059976::t_63801e98f9e46f 324,327
+  s_1d7c6e4442df06::t_32d75ff41042ba 143,154-180
+  s_228f2a56059976::t_d723a250eb4cd3 285,287
+  s_228f2a56059976::t_292bd5817bf2e6 269,272
+  s_228f2a56059976::t_b3866c38b16a5b 256,258
+src/company_report_kit/graph/state.py
+  s_228f2a56059976::t_bd3b1a98a79022 92-98
+src/company_report_kit/workflows/__init__.py
+  s_1d7c6e4442df06::t_3b37bfa21eafd9 4-8,17,25
+src/company_report_kit/prompts.py
+  s_228f2a56059976::t_e7c52ea2f64bcd 275-278,280,288
+  s_1d7c6e4442df06::t_b855894fbe74ae 261-263,281-287
+src/company_report_kit/workflows/review.py
+  s_228f2a56059976::t_e1cc98f7d189d9 210,230
+  s_228f2a56059976::t_75c03e873d4204 270-272,278-279
+  s_228f2a56059976::t_c2af9d38033db4 266-267,280-282
+  s_228f2a56059976::t_51e02089c727ed 304
+  s_228f2a56059976::t_3f127312f79db2 105,119-198
+  s_228f2a56059976::t_52a2ae590d552b 268-269
+  s_228f2a56059976::t_fcb484bce3d417 17,32,40-43
+  s_228f2a56059976::t_3d11f19c3dfcb6 53-55
+  s_1d7c6e4442df06::t_7d987823cd5c9a 208-209,228,262
+  s_1d7c6e4442df06::t_bc7c96995764eb 25
+  s_228f2a56059976::t_9769e2dae101d6 258,264,273-277
+src/company_report_kit/workflows/snapshot.py
+  s_228f2a56059976::t_3a145f19b52391 88-90,93-97,125-132
+  s_228f2a56059976::t_5b7a914f1d77ee 28
+  s_228f2a56059976::t_48af4307fef0ec 102-106,108
+  s_1d7c6e4442df06::t_a4584912309cbb 1-2,6-8,10-11,31,38,40-44,84-87,91-92,98-101,107,109-119,124,133-134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.39-trip",
+  "base_commit_sha": "aeaa873c7d2025e9340c609b56603d90cf9d5bb4",
+  "prompts": {},
+  "sessions": {
+    "s_1d7c6e4442df06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b6e1838c-77da-4d48-a036-17f4b79628ec",
+        "model": "ep-bpcl3tow"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    },
+    "s_228f2a56059976": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c94fc66-cbc8-426d-a8cb-35aad3d7dbde",
+        "model": "deepseek-v4-flash-0731"
+      },
+      "human_author": "masterlyj <167326996+masterlyj@users.noreply.github.com>"
+    }
+  }
+}
