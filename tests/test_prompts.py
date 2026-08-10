@@ -57,9 +57,10 @@ def test_research_system_prompt_has_mcp_slot() -> None:
 
 
 def test_group_sources_prompt_has_sources_var() -> None:
-    """group_sources_into_events_prompt 仅需 {sources}。"""
+    """group_sources_into_events_prompt 需 {sources} 与 {topic}(研究主题注入分组)。"""
     vars = _format_vars(prompts.group_sources_into_events_prompt)
-    assert vars == ["sources"]
+    assert "sources" in vars
+    assert "topic" in vars
 
 
 # ──────────────────────────────────────────────────────────────
@@ -98,9 +99,10 @@ def test_research_system_prompt_format_with_empty_mcp() -> None:
 
 
 def test_group_sources_prompt_format_succeeds() -> None:
-    """group_sources 模板传入来源文本后可成功格式化。"""
-    result = prompts.group_sources_into_events_prompt.format(sources="1. 来源A")
+    """group_sources 模板传入来源文本与研究主题后可成功格式化。"""
+    result = prompts.group_sources_into_events_prompt.format(sources="1. 来源A", topic="研究公司财务")
     assert "1. 来源A" in result
+    assert "研究公司财务" in result
 
 
 # ──────────────────────────────────────────────────────────────
@@ -132,12 +134,13 @@ def test_polish_report_prompt_forbids_fact_changes() -> None:
 
 
 def test_group_sources_prompt_has_grouping_rules() -> None:
-    """group_sources 模板包含分组判定规则（同一事件 / 转载 / 不同事件 / 孤立来源）。"""
+    """group_sources 模板包含分组判定规则（同一事件 / 转载 / 不同事件 / 孤立来源 / 范围过滤）。"""
     tpl = prompts.group_sources_into_events_prompt
     assert "同一事件" in tpl
     assert "转载" in tpl
     assert "不同事件" in tpl
     assert "孤立来源" in tpl
+    assert "范围过滤" in tpl
 
 
 def test_research_system_prompt_mentions_search_tool() -> None:
@@ -180,8 +183,10 @@ def test_write_section_prompt_uses_h3_without_numbering() -> None:
     assert "使用 ## 作为章节标题" not in tpl
     # raw_notes 占位符必须存在:write_section 凭它喂原文细节给 LLM
     assert "{raw_notes}" in tpl
-    # format 三占位符齐全,不报缺字段
-    formatted = tpl.format(topic="t", clusters="c", raw_notes="r")
+    # review_issues 占位符:审查修正时追加审查意见,纯写作时传空串
+    assert "{review_issues}" in tpl
+    # format 四占位符齐全,不报缺字段
+    formatted = tpl.format(topic="t", clusters="c", raw_notes="r", review_issues="")
     assert "t" in formatted and "c" in formatted and "r" in formatted
 
 
@@ -191,6 +196,18 @@ def test_review_prompt_guides_evidence_as_excerpt() -> None:
     assert "摘录对应 URL 原文中的关键语句" in tpl
     assert "保留原措辞、金额、日期、投资方" in tpl
     assert "不要总结转述" in tpl
+
+
+def test_review_prompt_body_is_verification_basis() -> None:
+    """规则 3:页面正文是核实基准,摘要仅作正文提取失败时的兜底——防摘要掩护过期事实。
+
+    回归对抗审查高危#2:摘要与正文矛盾时,不能因摘要含声称就放行(摘要可能是
+    过期搜索快照),正文成功时以正文为准。
+    """
+    tpl = prompts.section_review_prompt
+    assert "[页面正文]是核实基准" in tpl
+    assert "不要因[搜索摘要]含该事实而放行" in tpl
+    assert "[搜索摘要]仅作正文提取失败时的兜底" in tpl
 
 
 def test_review_fix_prompt_relies_on_full_text() -> None:

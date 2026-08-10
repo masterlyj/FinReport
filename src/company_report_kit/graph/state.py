@@ -11,7 +11,7 @@ ResearchQuestion），这些既是 LLM 输出 schema，也是工具调用参数�
 阶段 3 接 Send 派发和阶段 2 接 LLM 时直接复用.
 """
 
-from typing import Annotated, Literal, Optional, TypeVar
+from typing import Annotated, Literal, NotRequired, TypeVar
 
 T = TypeVar("T")
 
@@ -183,11 +183,11 @@ class AgentState(MessagesState):
     """
 
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
-    research_brief: Optional[str] = None
-    notes: Annotated[list[str], override_reducer] = []
-    raw_notes: Annotated[list[str], override_reducer] = []
-    sections: Annotated[list[str], override_reducer] = []
-    final_report: Optional[str] = None
+    research_brief: NotRequired[str | None]
+    notes: NotRequired[Annotated[list[str], override_reducer]]
+    raw_notes: NotRequired[Annotated[list[str], override_reducer]]
+    sections: NotRequired[Annotated[list[str], override_reducer]]
+    final_report: NotRequired[str | None]
 
 
 class SupervisorState(TypedDict):
@@ -207,10 +207,10 @@ class SupervisorState(TypedDict):
 
     supervisor_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
     research_brief: str
-    notes: Annotated[list[str], override_reducer] = []
-    research_iterations: Annotated[int, last_value] = 0
-    raw_notes: Annotated[list[str], override_reducer] = []
-    sections: Annotated[list[str], override_reducer] = []
+    notes: NotRequired[Annotated[list[str], override_reducer]]
+    research_iterations: NotRequired[Annotated[int, last_value]]
+    raw_notes: NotRequired[Annotated[list[str], override_reducer]]
+    sections: NotRequired[Annotated[list[str], override_reducer]]
 
 
 class ResearcherState(TypedDict):
@@ -229,18 +229,20 @@ class ResearcherState(TypedDict):
     """
 
     researcher_messages: Annotated[list[MessageLikeRepresentation], override_reducer]
-    tool_call_iterations: Annotated[int, last_value] = 0
+    tool_call_iterations: NotRequired[Annotated[int, last_value]]
     research_topic: str
-    clusters: list[SourceGrouping] = []
-    section_text: str = ""
-    raw_notes: Annotated[list[str], override_reducer] = []
+    clusters: NotRequired[list[SourceGrouping]]
+    section_text: NotRequired[str]
+    raw_notes: NotRequired[Annotated[list[str], override_reducer]]
 
 
 class ResearcherOutputState(BaseModel):
     """researcher 子图的输出 schema，显式控制回传父图的字段.
 
-    只暴露章节文本和原始笔记，屏蔽 researcher_messages / tool_call_iterations /
-    clusters 等内部状态，避免子图内部消息流污染 supervisor.
+    只暴露章节文本、原始笔记与事件分组骨架，屏蔽 researcher_messages /
+    tool_call_iterations 等内部状态，避免子图内部消息流污染 supervisor.
+    clusters 暴露供父图在审查修正时重写章节——修正仍基于同一批事件分组与
+    来源原文，不重新搜索，只按审查意见修订措辞。
     """
 
     section_text: str = Field(
@@ -249,4 +251,8 @@ class ResearcherOutputState(BaseModel):
     raw_notes: Annotated[list[str], override_reducer] = Field(
         default_factory=list,
         description="原始工具输出（未经压缩），保留供证据库写入.",
+    )
+    clusters: list[SourceGrouping] = Field(
+        default_factory=list,
+        description="事件分组骨架（来源聚合结果），供审查修正时重写章节.",
     )

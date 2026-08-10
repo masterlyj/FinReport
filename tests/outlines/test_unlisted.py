@@ -44,6 +44,22 @@ def test_topics_for_no_orphan_placeholder() -> None:
         assert "{company}" not in topic
 
 
+def test_finance_prompt_excludes_funding_round_terms() -> None:
+    """财务维度 prompt 不应要求逐轮罗列融资,避免与投融资维度职责重叠。"""
+    finance_prompt = UNLISTED_TEMPLATE.dimensions[4].prompt
+    assert "不逐轮罗列融资事件" in finance_prompt
+    # 财务聚焦经营成果量化口径
+    assert "营收" in finance_prompt
+    assert "资金储备" in finance_prompt
+
+
+def test_investment_prompt_has_cumulative_funding() -> None:
+    """投融资维度 prompt 要求累计融资总额汇总,承接融资历史职责。"""
+    investment_prompt = UNLISTED_TEMPLATE.dimensions[0].prompt
+    assert "累计融资总额" in investment_prompt
+    assert "每一轮融资" in investment_prompt
+
+
 def test_label_for_returns_dimension_label() -> None:
     """label_for 返回对应维度标签,越界回退到占位标签."""
     assert UNLISTED_TEMPLATE.label_for(0) == "投融资"

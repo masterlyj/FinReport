@@ -56,7 +56,7 @@ async def test_researcher_subgraph_produces_section_text(
 
         name = "duckduckgo_web_search"
 
-        async def ainvoke(self, args, config=None):  # noqa: ANN001
+        async def ainvoke(self, args, config=None):
             seen_args.append(args)
             return "来源:\n1. 标题A — https://a.com/x\n   片段A"
 
@@ -86,14 +86,15 @@ async def test_researcher_subgraph_produces_section_text(
         _config(),
     )
 
-    # 输出 schema 仅暴露 section_text + raw_notes(内部字段被屏蔽)
+    # 输出 schema 暴露 section_text + raw_notes + clusters(事件骨架,供父图审查修正时重写章节)
     assert "电池产业链概览" in out["section_text"]
     assert isinstance(out["raw_notes"], list)
     assert any("来源:" in n for n in out["raw_notes"])
-    # 内部状态不外泄
+    # clusters 作为事件分组骨架暴露(父图审查修正重写章节的输入)
+    assert isinstance(out["clusters"], list)
+    # 真正的内部状态不外泄(消息流/迭代计数不污染父图)
     assert "researcher_messages" not in out
     assert "tool_call_iterations" not in out
-    assert "clusters" not in out
     # 锁住节点调用次数:researcher×2 + compress×1 + write_section×1,防节点循环数变化静默错位
     assert len(fake.invocations) == 4
     # 搜索工具收到预期 query
@@ -167,3 +168,110 @@ async def test_researcher_subgraph_empty_clusters_falls_back(
     assert "公开信息有限" in out["section_text"]
     # 调用次数:researcher 仅 1 次;compress/write_section 均短路不触发 LLM。
     assert len(fake.invocations) == 1
+
+
+def test_filter_raw_notes_by_urls_keeps_matching_entries() -> None:
+    """过滤原始笔记:保留 keep_urls 内的条目,丢弃其余来源原文。"""
+    from company_report_kit.graph.researcher import _filter_raw_notes_by_urls
+
+    raw = (
+        "来源:\n"
+        "1. 营收稿 — https://a.com/rev\n"
+        "   2025年收入近5亿元\n"
+        "2. 融资稿 — https://a.com/fund\n"
+        "   B轮融资7亿美元,腾讯领投"
+    )
+    out = _filter_raw_notes_by_urls(raw, {"https://a.com/rev"})
+    # 保留营收条目
+    assert "营收稿" in out
+    assert "2025年收入近5亿元" in out
+    # 丢弃融资条目(越界来源原文不进入写作上下文)
+    assert "融资稿" not in out
+    assert "B轮融资7亿美元" not in out
+    # 非条目行"来源:"原样保留
+    assert "来源:" in out
+
+
+def test_filter_raw_notes_by_urls_no_match_returns_original() -> None:
+    """无条目匹配时返回原文本,不误伤格式异常场景(安全侧)。"""
+    from company_report_kit.graph.researcher import _filter_raw_notes_by_urls
+
+    raw = "来源:\n1. 标题 — https://a.com/x\n   内容"
+    assert _filter_raw_notes_by_urls(raw, {"https://none.com"}) == raw
+    # 空 keep_urls 同样回退原文
+    assert _filter_raw_notes_by_urls(raw, set()) == raw
+
+
+def test_filter_raw_notes_by_urls_normalizes_url_drift() -> None:
+    """URL 微漂移(协议/www/尾斜杠)归一化后仍能匹配,不误删合法条目。"""
+    from company_report_kit.graph.researcher import _filter_raw_notes_by_urls
+
+    raw = (
+        "来源:\n"
+        "1. 营收稿 - https://www.a.com/rev\n"
+        "   2025年收入近5亿元\n"
+        "2. 融资稿 - https://a.com/fund/\n"
+        "   B轮融资7亿美元"
+    )
+    # keep_urls 用裸域名+尾斜杠,条目 URL 带 www/尾斜杠,归一化后应匹配
+    out = _filter_raw_notes_by_urls(raw, {"https://a.com/rev/"})
+    assert "营收稿" in out
+    assert "2025年收入近5亿元" in out
+    assert "融资稿" not in out
+    assert "B轮融资7亿美元" not in out
+
+
+@pytest.mark.anyio
+async def test_researcher_subgraph_group_prompt_receives_topic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """compress_research 把研究主题喂给分组 LLM,由 LLM 判断来源是否属本维度。
+
+    维度边界的判断主体是分组 LLM(按主题语义),而非代码硬编码词典——
+    分组 prompt 必须含研究主题,LLM 据此丢弃与本维度无关的来源。
+    """
+    from company_report_kit.graph.state import SourceGroupingBatch
+
+    class FakeSearch:
+        name = "duckduckgo_web_search"
+
+        async def ainvoke(self, args, config=None):
+            return "来源:\n1. 营收稿 — https://a.com/x\n   营收超10亿元"
+
+    fake = FakeModel(responses=[
+        AIMessage(content="", tool_calls=[{
+            "name": "duckduckgo_web_search",
+            "args": {"query": "营收"},
+            "id": "c1",
+        }]),
+        AIMessage(content="无更多工具调用"),
+        SourceGroupingBatch(clusters=[
+            SourceGrouping(
+                event_summary="公司披露年度营收",
+                key_facts="营收超10亿元，亏损收窄",
+                primary_url="https://a.com/rev",
+            ),
+        ]),
+        AIMessage(content="### 财务\n营收数据章节。"),
+    ])
+    monkeypatch.setattr("company_report_kit.graph.researcher.configurable_model", fake)
+    monkeypatch.setattr(
+        "company_report_kit.graph.researcher._RESEARCHER_TOOLS", [FakeSearch()]
+    )
+
+    out = await researcher_subgraph.ainvoke(
+        cast(ResearcherState, {
+            "researcher_messages": [HumanMessage(content="财务数据")],
+            "research_topic": "研究{company}可得的财务数据",
+        }),
+        _config(),
+    )
+
+    # 分组 LLM 的 prompt 含研究主题(LLM 据此判断来源归属)
+    group_msg = fake.invocations[2]
+    content = group_msg[0].content
+    assert "研究{company}可得的财务数据" in content
+    # 分组 LLM 返回的簇原样进入写作端(不经过代码层词典过滤)
+    write_msg = fake.invocations[3]
+    assert "公司披露年度营收" in write_msg[0].content
+    assert "营收数据章节" in out["section_text"]
