@@ -14,14 +14,13 @@
   tavily_web_search      — Tavily 的 LangChain @tool
   DuckDuckGoSearcher     — DuckDuckGo 搜索实现(无需 key)
   duckduckgo_web_search  — DuckDuckGo 搜索的 LangChain @tool
-  DuckDuckGoExtractor    — DuckDuckGo 正文提取(ddgs extract,无需 key)
-  ddg_extract_url        — 提取 URL 原文的 LangChain @tool
+  PlaywrightExtractor     — Playwright 渲染正文提取(无需 key,可过动态 WAF)
+  extract_url             — 提取 URL 原文的 LangChain async @tool(支持并发)
 """
 
 from __future__ import annotations
 
 from .base import SearchResponse, Source, WebSearcher, format_for_agent
-from .ddg_extract import DuckDuckGoExtractor, ddg_extract_url
 from .deepseek_search import (
     DeepSeekSearcher,
     _get_default,
@@ -29,6 +28,7 @@ from .deepseek_search import (
 )
 from .duckduckgo_search import DuckDuckGoSearcher, duckduckgo_web_search
 from .tavily_search import TavilySearcher, tavily_web_search
+from .web_extract import PlaywrightExtractor, extract_url
 
 
 def web_search(query: str) -> SearchResponse:
@@ -37,17 +37,17 @@ def web_search(query: str) -> SearchResponse:
 
 
 __all__ = [
-    "web_search",
-    "WebSearcher",
+    "DeepSeekSearcher",
+    "DuckDuckGoSearcher",
+    "PlaywrightExtractor",
     "SearchResponse",
     "Source",
-    "format_for_agent",
-    "DeepSeekSearcher",
-    "deepseek_web_search",
     "TavilySearcher",
-    "tavily_web_search",
-    "DuckDuckGoSearcher",
+    "WebSearcher",
+    "deepseek_web_search",
     "duckduckgo_web_search",
-    "DuckDuckGoExtractor",
-    "ddg_extract_url",
+    "extract_url",
+    "format_for_agent",
+    "tavily_web_search",
+    "web_search",
 ]

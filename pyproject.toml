@@ -16,11 +16,11 @@ dependencies = [
     "langgraph>=1.2.10",
     "langgraph-cli[inmem]>=0.4.31",
     "langsmith>=0.3.37",
-    "primp>=1.2.3",
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
     "tavily-python>=0.7.26",
     "trafilatura>=2.2.0",
+    "playwright>=1.62.0",
 ]
 
 [project.optional-dependencies]
