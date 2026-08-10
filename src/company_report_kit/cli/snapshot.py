@@ -15,12 +15,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import sys
 from datetime import datetime
+from typing import cast
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from langchain_core.runnables import RunnableConfig
 
 from company_report_kit.logging_utils import console, setup_logging
 from company_report_kit.workflows.snapshot import run_snapshot
@@ -35,7 +37,9 @@ _DEFAULT_CONFIG = {
 
 def _config() -> dict:
     """构造含 api_key 的运行时配置,默认并发 5."""
-    configurable = dict(_DEFAULT_CONFIG["configurable"])
+    # 显式标注元素类型 object:config 混入 int(并发数)/str(api_key/thread_id),
+    # 不标注会被 mypy 按首键推断成 dict[str, int] 导致赋值报错。
+    configurable: dict[str, object] = dict(_DEFAULT_CONFIG["configurable"])
     configurable["api_key"] = os.getenv("DEEPSEEK_API_KEY")
     configurable["thread_id"] = "snapshot-" + datetime.now().astimezone().strftime("%Y%m%d%H%M%S")
     return {"configurable": configurable}
@@ -48,7 +52,9 @@ def main() -> None:
     args = parser.parse_args()
     setup_logging()
 
-    report, review = asyncio.run(run_snapshot(args.company, _config()))
+    report, review = asyncio.run(
+        run_snapshot(args.company, cast("RunnableConfig", _config()))
+    )
 
     console.rule("最终报告")
     console.print(report[:2000] + ("..." if len(report) > 2000 else ""))
@@ -72,4 +78,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

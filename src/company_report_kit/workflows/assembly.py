@@ -28,7 +28,9 @@ def _is_orphan_definition(line: str, referenced: set[int]) -> bool:
         True 表示该行是孤儿脚注定义(应剪除);False 表示保留.
     """
     mo = _FOOTNOTE_DEF_LINE.match(line)
-    return bool(mo) and int(mo.group(1)) not in referenced
+    if mo is None:
+        return False
+    return int(mo.group(1)) not in referenced
 
 
 def assemble_sections(company: str, sections: list[str]) -> str:

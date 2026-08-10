@@ -89,7 +89,7 @@ def test_tool_wires_markdown_and_finance(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_search_empty_results(monkeypatch: pytest.MonkeyPatch) -> None:
     """results 为空列表时,sources 为空、answer 为 None,不抛错。"""
-    searcher, mock_client = _make_searcher(monkeypatch, {"results": []})
+    searcher, _mock_client = _make_searcher(monkeypatch, {"results": []})
     r = searcher.search("q")
     assert r.sources == []
     assert r.answer is None

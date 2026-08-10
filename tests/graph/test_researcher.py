@@ -27,7 +27,7 @@ class FakeTool:
         self._return = return_value
         self._exc = exc
 
-    async def ainvoke(self, args, config=None):  # noqa: ANN001
+    async def ainvoke(self, args, config=None):
         if self._exc is not None:
             raise self._exc
         return self._return

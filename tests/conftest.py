@@ -55,19 +55,19 @@ class FakeModel:
         # 记录每次 ainvoke 收到的 messages,供断言 prompt 拼装
         self.invocations: list = []
 
-    def bind_tools(self, _tools, **_kw):  # noqa: ANN001
+    def bind_tools(self, _tools, **_kw):
         return self
 
-    def with_structured_output(self, _schema, **_kw):  # noqa: ANN001
+    def with_structured_output(self, _schema, **_kw):
         return self
 
     def with_retry(self, **_kw):
         return self
 
-    def with_config(self, _config):  # noqa: ANN001
+    def with_config(self, _config):
         return self
 
-    async def ainvoke(self, messages, **_kw):  # noqa: ANN001
+    async def ainvoke(self, messages, **_kw):
         self.invocations.append(messages)
         if self._responses:
             item = self._responses.pop(0)

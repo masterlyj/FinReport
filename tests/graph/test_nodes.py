@@ -32,7 +32,7 @@ class FakeSubgraph:
         self._result = result
         self._exc = exc
 
-    async def ainvoke(self, _inp, _config=None):  # noqa: ANN001
+    async def ainvoke(self, _inp, _config=None):
         if self._exc is not None:
             raise self._exc
         return self._result

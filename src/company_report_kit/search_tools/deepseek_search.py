@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any, cast
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -63,7 +64,9 @@ class DeepSeekSearcher:
         message = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
-            tools=[_WEB_SEARCH_TOOL],
+            # Anthropic SDK 的 tools 参数类型是 ToolParam 联合，dict 字面量运行时
+            # 合法但 mypy 不认，cast 到 Any 让类型检查通过。
+            tools=[cast(Any, _WEB_SEARCH_TOOL)],
             messages=[{"role": "user", "content": query}],
         )
         return _parse_message(query, message)

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from company_report_kit.search_tools.tavily_search import TavilySearcher, tavily_web_search
+from company_report_kit.search_tools.tavily_search import (
+    TavilySearcher,
+    tavily_web_search,
+)
 
 
 @pytest.mark.live

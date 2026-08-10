@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from company_report_kit.graph.graph import graph, supervisor_subgraph
 
-
 # ──────────────────────────────────────────────────────────────
 # supervisor 子图
 # ──────────────────────────────────────────────────────────────

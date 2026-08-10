@@ -149,5 +149,5 @@ class Configuration(BaseModel):
         try:
             configurable = (config or {}).get("configurable", {})
             return cls(**{k: v for k, v in configurable.items() if k in cls.model_fields})
-        except Exception:
+        except Exception:  # noqa: BLE001 - 配置异常时回退默认,不阻断流水线
             return cls()

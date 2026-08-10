@@ -9,8 +9,8 @@ from company_report_kit.graph.state import (
     ClarifyWithUser,
     ConductResearch,
     ResearchComplete,
-    ResearchQuestion,
     ResearcherOutputState,
+    ResearchQuestion,
     last_value,
     override_reducer,
 )
@@ -74,11 +74,11 @@ def test_clarifywithuser_extra_forbid() -> None:
     # 用 **dict 传额外字段,触发运行时 ValidationError 而非 pyright 静态报。
     with pytest.raises(ValidationError):
         ClarifyWithUser(
-            need_clarification=True, question="q", verification="v", **{"unknown": "x"}
+            need_clarification=True, question="q", verification="v", unknown="x"
         )
 
 
 def test_researchquestion_extra_forbid() -> None:
     """ResearchQuestion 同样禁止额外字段。"""
     with pytest.raises(ValidationError):
-        ResearchQuestion(research_brief="b", **{"unknown": "x"})
+        ResearchQuestion(research_brief="b", unknown="x")

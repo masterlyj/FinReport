@@ -16,7 +16,7 @@ from typing import Literal
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
-from tavily import TavilyClient
+from tavily import TavilyClient  # type: ignore # tavily 缺 py.typed
 
 from .base import SearchResponse, Source, format_for_agent
 

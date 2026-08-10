@@ -10,9 +10,15 @@ supervisor 用 bind_tools 决策派发，supervisor_tools 用 ainvoke 并行调�
 """
 
 import asyncio
-from typing import Literal
+from typing import Any, Literal, cast
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage, get_buffer_string
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+    get_buffer_string,
+)
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command, interrupt
 
@@ -23,6 +29,7 @@ from company_report_kit.graph.state import (
     ClarifyWithUser,
     ConductResearch,
     ResearchComplete,
+    ResearcherState,
     ResearchQuestion,
 )
 from company_report_kit.logging_utils import get_logger
@@ -33,12 +40,12 @@ from company_report_kit.prompts import (
     transform_messages_into_research_topic_prompt,
 )
 from company_report_kit.utils import (
+    RETRY_KWARGS,
     configurable_model,
     get_model_config,
     get_notes_from_tool_calls,
     get_today_str,
     think_tool,
-    RETRY_KWARGS,
 )
 from company_report_kit.workflows.assembly import assemble_sections
 
@@ -75,8 +82,9 @@ async def clarify_with_user(
         messages=get_buffer_string(state["messages"]),
         date=get_today_str(),
     )
-    response: ClarifyWithUser = await clarification_model.ainvoke(
-        [HumanMessage(content=prompt_content)]
+    response: ClarifyWithUser = cast(
+        ClarifyWithUser,
+        await clarification_model.ainvoke([HumanMessage(content=prompt_content)]),
     )
     _log("clarify_with_user", "LLM 判断完成")
     if response.need_clarification:
@@ -114,8 +122,9 @@ async def write_brief(
         messages=get_buffer_string(state.get("messages", [])),
         date=get_today_str(),
     )
-    response: ResearchQuestion = await research_model.ainvoke(
-        [HumanMessage(content=prompt_content)]
+    response: ResearchQuestion = cast(
+        ResearchQuestion,
+        await research_model.ainvoke([HumanMessage(content=prompt_content)]),
     )
     _log("write_brief", "研究简报生成完成")
     research_brief = response.research_brief
@@ -156,17 +165,14 @@ async def supervisor(
     model_config = get_model_config(
         configurable, configurable.research_model, configurable.research_model_max_tokens
     )
-    lead_tools = [ConductResearch, ResearchComplete, think_tool]
+    # 类型标注为 Sequence[Any]：三个元素类型不同(模型类 + @tool)，mypy
+    # 推断成 list[object] 会让 bind_tools 报 arg-type，实际运行可正常 bind。
+    lead_tools: list[Any] = [ConductResearch, ResearchComplete, think_tool]
     research_model = (
         configurable_model
         .bind_tools(lead_tools)
         .with_retry(**RETRY_KWARGS)
         .with_config(model_config)
-    )
-    supervisor_system_prompt = lead_researcher_prompt.format(
-        date=get_today_str(),
-        max_researcher_iterations=configurable.max_researcher_iterations,
-        max_concurrent_research_units=configurable.max_concurrent_research_units,
     )
     supervisor_messages = state.get("supervisor_messages", [])
     _iter = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
@@ -176,7 +182,8 @@ async def supervisor(
         goto="supervisor_tools",
         update={
             "supervisor_messages": [response],
-            "research_iterations": state.get("research_iterations", 0) + 1,
+            # state.get 对 Annotated 字段返回 object，cast 收窄到 int 才能 +1
+            "research_iterations": cast(int, state.get("research_iterations", 0)) + 1,
         },
     )
 
@@ -192,7 +199,10 @@ async def supervisor_tools(
     configurable = Configuration.from_runnable_config(config)
     supervisor_messages = state.get("supervisor_messages", [])
     research_iterations = sum(1 for m in supervisor_messages if isinstance(m, AIMessage))
-    most_recent = supervisor_messages[-1]
+    # 最近一条消息由 supervisor 节点写入(AIMessage with tool_calls)。
+    # supervisor_messages 类型是 list[MessageLikeRepresentation](含 str/dict 等
+    # 联合)，cast 收窄到 AIMessage 才能访问 .tool_calls。
+    most_recent = cast(AIMessage, supervisor_messages[-1])
 
     no_tool_calls = not most_recent.tool_calls
     research_complete = any(tc["name"] == "ResearchComplete" for tc in most_recent.tool_calls)
@@ -212,7 +222,21 @@ async def supervisor_tools(
         allowed = conduct_calls[:configurable.max_concurrent_research_units]
         overflow = conduct_calls[configurable.max_concurrent_research_units:]
         _log("supervisor_tools", f"派发 {len(allowed)} 个 researcher(overflow {len(overflow)})")
-        research_tasks = [researcher_subgraph.ainvoke({"researcher_messages": [HumanMessage(content=tc["args"]["research_topic"])], "research_topic": tc["args"]["research_topic"]}, config) for tc in allowed]
+        research_tasks = [
+            researcher_subgraph.ainvoke(
+                cast(
+                    ResearcherState,
+                    {
+                        "researcher_messages": [
+                            HumanMessage(content=tc["args"]["research_topic"])
+                        ],
+                        "research_topic": tc["args"]["research_topic"],
+                    },
+                ),
+                config,
+            )
+            for tc in allowed
+        ]
         tool_results = await asyncio.gather(*research_tasks, return_exceptions=True)
         # 按派发顺序收集章节(gather 保序),供主图 assemble_sections 拼接
         sections_per_round: list[str] = []
@@ -221,15 +245,18 @@ async def supervisor_tools(
                 all_tool_messages.append(ToolMessage(content=f"研究失败: {observation}", name=tc["name"], tool_call_id=tc["id"]))
                 sections_per_round.append("")
                 continue
-            section_text = observation.get("section_text", "研究章节生成失败")
+            # gather(return_exceptions=True) 使类型为 dict | BaseException;
+            # isinstance 已排除 Exception，cast 收窄到 dict 才能 .get。
+            obs: dict = cast(dict, observation)
+            section_text = obs.get("section_text", "研究章节生成失败")
             all_tool_messages.append(ToolMessage(content=section_text, name=tc["name"], tool_call_id=tc["id"]))
             sections_per_round.append(section_text)
         for tc in overflow:
-            all_tool_messages.append(ToolMessage(content=f"超出并行上限", name="ConductResearch", tool_call_id=tc["id"]))
+            all_tool_messages.append(ToolMessage(content="超出并行上限", name="ConductResearch", tool_call_id=tc["id"]))
         all_raw = []
-        for obs in tool_results:
-            if not isinstance(obs, Exception):
-                all_raw.extend(obs.get("raw_notes", []))
+        for res in tool_results:
+            if not isinstance(res, Exception):
+                all_raw.extend(cast(dict, res).get("raw_notes", []))
         raw_notes_concat = "\n".join(all_raw)
         if exceeded:
             _log("supervisor_tools", "exceeded，执行完工具后退出")
@@ -312,7 +339,7 @@ async def polish_report(
     Returns:
         Command 到 __end__,更新 final_report 为润色后的报告.
     """
-    draft = state.get("final_report", "")
+    draft = state.get("final_report", "") or ""
     configurable = Configuration.from_runnable_config(config)
     model_config = get_model_config(
         configurable, configurable.research_model, configurable.research_model_max_tokens
@@ -321,7 +348,8 @@ async def polish_report(
     prompt = polish_report_prompt.format(report=draft)
     _log("polish_report", f"润色 {len(draft)} 字符的报告")
     response = await polisher.ainvoke([HumanMessage(content=prompt)])
-    polished = str(response.content)
+    # content 可能为 None（模型返回空），用 or "" 避免类型错与 "None" 字符串
+    polished = str(response.content or "")
     _log("polish_report", f"润色完成, {len(polished)} 字符")
     return Command(
         goto="__end__",

@@ -18,9 +18,10 @@ RETRY_KWARGS 控制 with_retry 行为：
 """
 
 from datetime import datetime
-from typing import Any
+from typing import TypedDict, cast
 
 from langchain.chat_models import init_chat_model
+from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.retry import ExponentialJitterParams
 from langchain_core.tools import tool
 
@@ -45,7 +46,16 @@ def think_tool(reflection: str) -> str:
 
 # LLM 调用重试 kwargs.
 # 指数退避 2s→4s→8s→16s→32s→60s + 0-3s 随机抖动，最多 8 次.
-RETRY_KWARGS = {
+# 用 TypedDict 而非普通 dict：让 `with_retry(**RETRY_KWARGS)` 的展开能通过
+# mypy 精确匹配 with_retry 签名（普通 dict 会被当作 "dict[str, object]"
+# 逐个位置匹配，报 4 个 arg-type 误报）。
+class _RetryKwargs(TypedDict):
+    stop_after_attempt: int
+    wait_exponential_jitter: bool
+    exponential_jitter_params: ExponentialJitterParams
+
+
+RETRY_KWARGS: _RetryKwargs = {
     "stop_after_attempt": 8,
     "wait_exponential_jitter": True,
     "exponential_jitter_params": ExponentialJitterParams(initial=2, max=60, exp_base=2, jitter=3),
@@ -54,7 +64,7 @@ RETRY_KWARGS = {
 
 def get_today_str() -> str:
     """返回当前日期的可读字符串，供 prompt 填充."""
-    now = datetime.now()
+    now = datetime.now().astimezone()
     return f"{now.year}年{now.month}月{now.day}日"
 
 
@@ -63,7 +73,7 @@ def get_model_config(
     model: str,
     max_tokens: int,
     thinking: bool = False,
-) -> dict[str, Any]:
+) -> RunnableConfig:
     """构造传给 configurable_model.with_config 的运行时配置.
 
     Args:
@@ -77,13 +87,20 @@ def get_model_config(
     Returns:
         含 model/max_tokens/api_key/extra_body/tags 的配置 dict.
     """
-    return {
-        "model": f"deepseek:{model}",
-        "max_tokens": max_tokens,
-        "api_key": configurable.api_key or None,
-        "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}},
-        "tags": ["langsmith:nostream"],
-    }
+    # 返回类型标注 RunnableConfig（with_config 的参数类型），但实际 dict 含
+    # model/max_tokens/api_key/extra_body 等非 RunnableConfig 标准键——这些是
+    # init_chat_model 的 configurable_fields 消费的运行时键。用 cast 让类型
+    # 检查通过且不改动运行时行为。
+    return cast(
+        RunnableConfig,
+        {
+            "model": f"deepseek:{model}",
+            "max_tokens": max_tokens,
+            "api_key": configurable.api_key or None,
+            "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}},
+            "tags": ["langsmith:nostream"],
+        },
+    )
 
 
 def get_notes_from_tool_calls(messages: list) -> list[str]:
