@@ -7,8 +7,8 @@
 agent 并行校验脚注事实(上下文小、聚焦,避免整篇审查的大上下文幻觉),有问题的
 章节反馈修正(最多 1 轮);最后代码组装(拼接+重编编号+孤儿/悬空脚注清理)。
 
-审查不检测跨章节口径冲突:supervisor 不做事实审查,snapshot 路径无 supervisor,
-且原整篇审查即使发现跨章冲突也只打 log 不修正。
+审查是 per-section:每章只核本章脚注来源(搜索摘要+正文),不做跨章口径比较——
+各章事实各自有据可依即可,跨章重复/口径差异属报告自然现象。
 """
 
 from __future__ import annotations
@@ -19,14 +19,21 @@ from typing import cast
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from company_report_kit.graph.researcher import researcher_subgraph
-from company_report_kit.graph.state import ResearcherState, ReviewIssue
+from company_report_kit.graph.researcher import (
+    researcher_subgraph,
+    write_section_with_feedback,
+)
+from company_report_kit.graph.state import (
+    ResearcherState,
+    ReviewIssue,
+    SourceGrouping,
+)
 from company_report_kit.logging_utils import get_logger
 from company_report_kit.outlines import UNLISTED_TEMPLATE
 from company_report_kit.workflows.assembly import assemble_sections
 from company_report_kit.workflows.review import (
     ReviewStatus,
-    fix_section,
+    _format_issue_for_fix,
     render_review,
     run_section_review,
 )
@@ -69,17 +76,26 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 收集各 researcher 的章节
+    # 收集各 researcher 的章节与原始笔记(原始笔记含搜索摘要,供审查核实正文爬取失败的事实)
     sections: list[str] = []
+    raw_notes_list: list[list[str]] = []
+    clusters_list: list[list[SourceGrouping]] = []
     for i, r in enumerate(results):
         label = label_for(i)
         if isinstance(r, Exception):
             logger.warning("  [%s] 失败: %s", label, r)
             sections.append(f"## {label}\n\n({label}研究失败: {r})")
+            raw_notes_list.append([])
+            clusters_list.append([])
         else:
-            section = r.get("section_text", "")
+            # gather(return_exceptions=True) 使类型为 dict | BaseException;
+            # isinstance 已排除 Exception，cast 收窄到 dict 才能 .get。
+            result: dict = cast(dict, r)
+            section = result.get("section_text", "")
             logger.info("  [%s] 完成, %s 字符", label, len(section))
             sections.append(section)
+            raw_notes_list.append(list(result.get("raw_notes", []) or []))
+            clusters_list.append(list(result.get("clusters", []) or []))
 
     # per-section 审查+修正(并行):每章一个审查 agent,上下文小、聚焦。
     # 审查作用在组装前的 section_text 上,修正后单次组装。
@@ -90,12 +106,17 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
 
     async def _review_and_fix(i: int) -> tuple[str, list[ReviewIssue]]:
         section = sections[i]
-        issues, url_cache, status = await run_section_review(section, config)
+        issues, url_cache, status = await run_section_review(
+            section, config, raw_notes=raw_notes_list[i]
+        )
         review_statuses.append(status)
         if status is ReviewStatus.FAILED:
             logger.warning("  [%s] 审查失败,标记为审查未执行", label_for(i))
         if status is not ReviewStatus.ISSUES:  # 通过/无脚注/失败均不修正
             return section, []
+        # status==ISSUES 时 issues 必非 None(run_section_review 契约),
+        # assert 让 mypy 收窄,且运行时违约时快速失败。
+        assert issues is not None
         # stamp 真实章号供 render_review 显示维度标签
         for issue in issues:
             issue.section = i + 1
@@ -104,8 +125,21 @@ async def run_snapshot(company: str, config: RunnableConfig) -> tuple[str, str]:
         if not fixable:
             logger.info("  [%s] 审查 %s 条问题但均为低置信/裁决,不触发修正", label_for(i), len(issues))
             return section, issues
+        # 修正走 researcher 的 write_section 核心:基于同一批 clusters+raw_notes,
+        # 把审查意见作为修订指令追加,让 LLM 按意见修订而非独立重写。
+        # 这就是"审查意见回喂 researcher"——researcher 保留搜索/分组上下文,
+        # 只在原章节基础上改被指出的问题。
+        review_feedback = "\n".join(
+            _format_issue_for_fix(iss, url_cache) for iss in fixable
+        )
         try:
-            fixed = await fix_section(topics[i], section, fixable, url_cache, config)
+            fixed = await write_section_with_feedback(
+                topic=topics[i],
+                clusters=clusters_list[i],
+                raw_notes="\n\n".join(raw_notes_list[i]),
+                review_issues=review_feedback,
+                config=config,
+            )
             logger.info("  [%s] 修正完成, %s 字符", label_for(i), len(fixed))
             return fixed, issues
         except Exception as e:  # noqa: BLE001 - 修正失败保留原章节,不阻断流水线

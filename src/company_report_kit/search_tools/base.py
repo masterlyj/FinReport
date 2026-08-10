@@ -15,6 +15,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Protocol
+from urllib.parse import urlsplit
+
+
+def normalize_url(url: str) -> str:
+    """把 URL 归一化为可稳定比对的键,去除比对时常见的漂移差异.
+
+    搜索摘要里的 URL 与章节脚注/分组簇的 URL 常因协议前缀、www、尾斜杠、
+    查询参数、fragment 的细微差异而对不上,导致按 URL 精确匹配的过滤/兜底
+    失效(静默删条目或 fail-open 泄漏)。归一化统一去掉这些差异:
+
+      https://www.example.com/a/b/?tab=2#x  →  example.com/a/b
+
+    Args:
+        url: 原始 URL.
+
+    Returns:
+        归一化后的 URL 键(小写 host + 路径,无协议/www/尾斜杠/查询/fragment)。
+    """
+    # 预剥离尾部标点(中英文句逗分号)——这些是真实噪音,不影响 URL 内括号。
+    # 注意:不剥 `)]}`——`Film_(2024)` 的尾 `)` 是 URL 的一部分,urlsplit 前剥会切坏。
+    parts = urlsplit(url.strip().rstrip(".,;。，；"))
+    # hostname 可能被 markdown 闭合 `)` 污染(如 `[标题](https://a.com)` 的 `)` 被
+    # urlsplit 误解析进 host);剥离尾随定界符。path 保留括号(如 Wikipedia 消歧义
+    # `Film_(2024)` 的 `)` 是 URL 的一部分,不能剥)。
+    host = (parts.hostname or "").lower().removeprefix("www.").rstrip(")]}")
+    path = parts.path.rstrip("/")
+    return f"{host}{path}"
 
 
 @dataclass

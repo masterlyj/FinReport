@@ -13,10 +13,10 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from company_report_kit.graph.state import ReviewIssue, ReviewResult
+from company_report_kit.graph import researcher as researcher_module
+from company_report_kit.graph.state import ReviewIssue, ReviewResult, SourceGrouping
 from company_report_kit.outlines import UNLISTED_TEMPLATE
-from company_report_kit.workflows import assembly, review
-from company_report_kit.workflows import snapshot
+from company_report_kit.workflows import assembly, review, snapshot
 from company_report_kit.workflows.snapshot import run_snapshot
 from tests.conftest import FakeModel
 
@@ -226,19 +226,43 @@ class _FakeSubgraph:
     """researcher_subgraph 替身:ainvoke 按 research_topic 返回对应章节(含脚注)。
 
     run_snapshot 用 asyncio.gather 并行派发,结果按 topic 收集;假子图按 topic
-    包含的维度关键词匹配到固定章节,保证每个 researcher 返回与其维度对应内容。
+    包含的维度特有子串匹配到固定章节,保证每个 researcher 返回与其维度对应内容。
     topics_for 返回的是 ResearchDimension.prompt 填充后的整句,故用子串匹配。
+    用各维度特有子串(而非维度标签)避免跨维度关键词误匹配——如竞品 prompt
+    现含"投融资维度"字样,若按"投融资"匹配会错配到第 0 节。
+
+    返回 section_text + raw_notes + clusters(供审查修正时 write_section_with_feedback
+    重写章节——修正仍基于同一批 clusters,故替身需提供)。
     """
+
+    _KEYS = ("融资历史", "竞品格局", "组织架构", "营收模式", "可得的财务数据")
 
     def __init__(self, sections: list[str]) -> None:
         self._sections = sections
 
-    async def ainvoke(self, state, _config):  # noqa: ANN001
+    def _clusters(self, url: str) -> list[SourceGrouping]:
+        """为某章节构造一个伪事件簇(用其脚注 URL),供修正重写."""
+        return [SourceGrouping(
+            event_summary="事件",
+            key_facts="关键事实",
+            primary_url=url,
+            supporting_urls=[],
+        )]
+    async def ainvoke(self, state, _config):
         topic = state.get("research_topic", "")
-        for i, key in enumerate(("投融资", "竞品", "团队", "业务", "财务")):
+        for i, key in enumerate(self._KEYS):
             if key in topic:
-                return {"section_text": self._sections[i]}
-        return {"section_text": self._sections[0]}
+                section = self._sections[i]
+                return {
+                    "section_text": section,
+                    "raw_notes": ["来源:\n1. 标题 - https://a.com/x\n   内容"],
+                    "clusters": self._clusters("https://a.com/x"),
+                }
+        return {
+            "section_text": self._sections[0],
+            "raw_notes": ["来源:\n1. 标题 - https://a.com/x\n   内容"],
+            "clusters": self._clusters("https://a.com/x"),
+        }
 
 
 @pytest.mark.anyio
@@ -271,10 +295,16 @@ async def test_snapshot_low_confidence_issues_do_not_trigger_fix(
     # 每章审查都返回同一条低置信问题 → 5 章都不触发修正
     # 审查/修正模型在 review 模块内使用(review.run_section_review → review.configurable_model),
     # 故 patch review.configurable_model 而非 snapshot 的。
-    fake = FakeModel(responses=[ReviewResult(issues=[ReviewIssue(**low_issue)])] * 5)
+    fake = FakeModel(
+        responses=[ReviewResult(issues=[ReviewIssue(**low_issue)])] * 5
+    )
     monkeypatch.setattr(review, "configurable_model", fake)
-    # DuckDuckGoExtractor 由 review.run_section_review 使用,同样 patch review 模块
-    monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
+    # PlaywrightExtractor 由 review.run_section_review 使用,同样 patch review 模块
+    # 审查并发用 extract_async(async),patch 目标同步为 async 方法
+    async def _fake_extract_async(self, url):
+        return "原文正文"
+
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _fake_extract_async)
     monkeypatch.setattr(snapshot, "researcher_subgraph", _FakeSubgraph(sections))
 
     report, review_text = await run_snapshot("测试公司", cast(RunnableConfig, {"configurable": {}}))
@@ -291,6 +321,67 @@ async def test_snapshot_low_confidence_issues_do_not_trigger_fix(
     # 低置信问题仍渲染进审查结果(不静默丢弃),供人工复核
     assert "引用错配" in review_text
     assert "原文未提及该融资(存疑)" in review_text
+
+
+@pytest.mark.anyio
+async def test_snapshot_high_confidence_issues_trigger_write_with_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """快照级:高置信问题触发修正,修正走 write_section_with_feedback 重写章节.
+
+    审查意见回喂 researcher 的 write_section 核心:基于同一批 clusters+raw_notes,
+    把 ReviewIssue 格式化成审查意见段追加进 prompt,让 LLM 按意见修订而非独立重写。
+    修正后章节替换原章节进入组装;审查问题仍渲染进结果供追溯。
+    """
+    sections = [
+        "### 投融资\n2026年完成超50亿融资。[^1]\n[^1]: [融资](https://a.com)",
+        "### 竞品\n竞品A领先。[^1]\n[^1]: [竞品](https://b.com)",
+        "### 团队\n创始人为X。[^1]\n[^1]: [团队](https://c.com)",
+        "### 业务\n主打产品Y。[^1]\n[^1]: [业务](https://d.com)",
+        "### 财务\n营收Z。[^1]\n[^1]: [财务](https://e.com)",
+    ]
+
+    high_issue = {
+        "section": 1,
+        "issue_type": "引用错配",
+        "report_text": "2026年完成超50亿融资。[^1]",
+        "url": "https://a.com",
+        "evidence": "原文为:本轮融资3.2亿美元",
+        "action": "fix",
+        "severity": "high",
+        "confidence": "high",  # 高置信:修正护栏应放行
+    }
+    # 审查与修正各用独立 FakeModel:审查走 review.configurable_model(返回 ReviewResult),
+    # 修正走 researcher.configurable_model(返回 AIMessage)。两队列独立,避免
+    # asyncio.gather 并行章节交错消费同一队列导致审查拿到修正的响应。
+    review_fake = FakeModel(
+        responses=[ReviewResult(issues=[ReviewIssue(**high_issue)])] * 5
+    )
+    researcher_fake = FakeModel(
+        responses=[AIMessage(content="修正后的章节")] * 5
+    )
+    monkeypatch.setattr(review, "configurable_model", review_fake)
+    monkeypatch.setattr(researcher_module, "configurable_model", researcher_fake)
+    monkeypatch.setattr(snapshot, "researcher_subgraph", _FakeSubgraph(sections))
+
+    async def _fake_extract_async(self, url):
+        return "原文正文"
+
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _fake_extract_async)
+
+    report, review_text = await run_snapshot("测试公司", cast(RunnableConfig, {"configurable": {}}))
+
+    # 审查 5 次(每章一次),修正 5 次(每章一次)
+    assert len(review_fake.invocations) == 5
+    assert len(researcher_fake.invocations) == 5
+    # 修正重写的 prompt 应含审查意见(引用错配),且基于 clusters/raw_notes
+    fix_msgs = researcher_fake.invocations[0]  # 第 1 章修正的调用
+    assert any("引用错配" in str(m.content) for m in fix_msgs if hasattr(m, "content"))
+    # 修正后的章节进入报告(替换原"超50亿融资"措辞)
+    assert "修正后的章节" in report
+    # 审查问题仍渲染进结果
+    assert "引用错配" in review_text
+    assert "原文为:本轮融资3.2亿美元" in review_text
 
 
 @pytest.mark.anyio
@@ -324,7 +415,11 @@ async def test_review_issues_returns_structured_list(monkeypatch: pytest.MonkeyP
     issues = [_issue(), _issue(section=2, issue_type="口径冲突", report_text="R2")]
     fake = FakeModel(responses=[ReviewResult(issues=issues)])
     monkeypatch.setattr(review, "configurable_model", fake)
-    monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
+
+    async def _fake_extract_async(self, url):
+        return "原文正文"
+
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _fake_extract_async)
 
     out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues == issues
@@ -353,7 +448,11 @@ async def test_review_issues_structured_failure_returns_none(
     """结构化输出抛异常时按"跳过审查"处理(返回 None),但 url_cache 仍保留原文."""
     fake = FakeModel(responses=[ValueError("no support")])
     monkeypatch.setattr(review, "configurable_model", fake)
-    monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
+
+    async def _fake_extract_async(self, url):
+        return "原文正文"
+
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _fake_extract_async)
 
     out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues is None
@@ -370,10 +469,11 @@ async def test_review_issues_extract_failure_still_reviews(
     fake = FakeModel(responses=[ReviewResult(issues=issues)])
     monkeypatch.setattr(review, "configurable_model", fake)
 
-    def _boom_extract(self, url):
+    # async 方法抛异常,run_section_review 的 return_exceptions 需能捕获
+    async def _boom_extract_async(self, url):
         raise RuntimeError("网络失败")
 
-    monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", _boom_extract)
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _boom_extract_async)
 
     out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues == issues
@@ -392,9 +492,94 @@ async def test_review_issues_structured_returns_empty_passes(
     """结构化输出为空 ReviewResult → 无问题."""
     fake = FakeModel(responses=[ReviewResult(issues=[])])
     monkeypatch.setattr(review, "configurable_model", fake)
-    monkeypatch.setattr(review.DuckDuckGoExtractor, "extract", lambda self, url: "原文正文")
+
+    async def _fake_extract_async(self, url):
+        return "原文正文"
+
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _fake_extract_async)
 
     out_issues, url_cache, status = await review.run_section_review("## 章节\n[^1]: [标题](https://a.com)", _config())
     assert out_issues == []
     assert url_cache == {"https://a.com": "原文正文"}
     assert status is review.ReviewStatus.PASSED
+
+
+# ---------- 审查补充搜索摘要证据 ----------
+
+
+def test_extract_snippets_from_raw_notes() -> None:
+    """从原始笔记解析 URL→搜索摘要:标题—url 行后的缩进内容。"""
+    note = """来源:
+1. 阶跃星辰完成B+轮融资 - https://a.com/x
+   融资超50亿元人民币，印奇出任董事长
+2. 营收报道 - https://b.com/y
+   2025年收入近5亿元，2026年预计12亿元"""
+    out = review._extract_snippets_from_raw_notes([note])
+    # 键已归一化(去协议/www/尾斜杠): https://a.com/x → a.com/x
+    assert "融资超50亿元人民币" in out["a.com/x"]
+    assert "2025年收入近5亿元" in out["b.com/y"]
+
+
+def test_extract_snippets_from_raw_notes_multiline_and_emdash() -> None:
+    """多行摘要合并;中文破折号 — 分隔也兼容;无标题直接 url 可解析。"""
+    note = """来源:
+1. 标题A — https://a.com/x
+   第一行内容
+   第二行内容
+2. https://b.com/y
+   直接url标题"""
+    out = review._extract_snippets_from_raw_notes([note])
+    assert "第一行内容 第二行内容" in out["a.com/x"]
+    assert "直接url标题" in out["b.com/y"]
+
+
+def test_extract_snippets_empty_notes() -> None:
+    """空笔记返回空 dict。"""
+    assert review._extract_snippets_from_raw_notes([]) == {}
+    assert review._extract_snippets_from_raw_notes(["无来源"]) == {}
+
+
+def test_strip_markdown_close_keeps_path_parens() -> None:
+    """剥离 markdown 闭合 `)`,保留 URL 内配对的括号。"""
+    # markdown 脚注闭合 `)`:剥离
+    assert review._strip_markdown_close("https://a.com)") == "https://a.com"
+    # URL 内配对括号(Wikipedia 消歧义):保留
+    assert review._strip_markdown_close("https://en.wikipedia.org/wiki/Film_(2024)") == "https://en.wikipedia.org/wiki/Film_(2024)"
+    # 叠加形态:括号 URL + markdown 闭合(`Film_(2024))`)——只剥多余 1 个 `)`
+    assert review._strip_markdown_close("https://en.wikipedia.org/wiki/Film_(2024))") == "https://en.wikipedia.org/wiki/Film_(2024)"
+    # 无尾定界符:原样返回
+    assert review._strip_markdown_close("https://a.com") == "https://a.com"
+
+
+@pytest.mark.anyio
+async def test_review_includes_snippet_when_body_extract_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """正文爬取失败时,搜索摘要进入审查 prompt,审查 LLM 仍可核实。
+
+    回归 bug:researcher 写报告依据的是搜索摘要 content,审查只给 URL+爬取正文,
+    爬取失败导致 review 只见"提取失败"误判无出处。修复后摘要作为证据补入。
+    """
+    issues = [_issue()]
+    fake = FakeModel(responses=[ReviewResult(issues=issues)])
+    monkeypatch.setattr(review, "configurable_model", fake)
+
+    async def _boom_extract_async(self, url):
+        raise RuntimeError("网络失败")
+
+    monkeypatch.setattr(review.PlaywrightExtractor, "extract_async", _boom_extract_async)
+
+    raw_notes = ["来源:\n1. 融资稿 - https://a.com/x\n   融资超50亿元,印奇出任董事长"]
+    out_issues, _url_cache, status = await review.run_section_review(
+        "## 章节\n完成超50亿融资[^1]\n[^1]: [融资](https://a.com/x)",
+        _config(),
+        raw_notes=raw_notes,
+    )
+    assert out_issues == issues
+    assert status is review.ReviewStatus.ISSUES
+    prompt = fake.invocations[0][0].content
+    # 搜索摘要进入审查 prompt(正文提取失败也有可核实依据)
+    assert "[搜索摘要]" in prompt
+    assert "融资超50亿元" in prompt
+    assert "提取失败" in prompt
+

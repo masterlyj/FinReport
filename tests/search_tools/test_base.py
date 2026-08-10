@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from company_report_kit.search_tools.base import SearchResponse, Source, format_for_agent
+from company_report_kit.search_tools.base import (
+    SearchResponse,
+    Source,
+    format_for_agent,
+    normalize_url,
+)
 
 
 def test_source_defaults() -> None:
@@ -11,6 +16,31 @@ def test_source_defaults() -> None:
     assert s.url == "https://a"
     assert s.title is None and s.page_age is None
     assert s.content is None and s.raw_content is None
+
+
+def test_normalize_url_strips_drift_differences() -> None:
+    """归一化去除协议/www/尾斜杠/查询参数/fragment,微漂移 URL 归到同一键。"""
+    # 协议 + www + 尾斜杠 + 查询参数 + fragment 差异
+    assert normalize_url("https://www.example.com/a/b/?tab=2#x") == "example.com/a/b"
+    assert normalize_url("http://example.com/a/b") == "example.com/a/b"
+    # 大小写 host 归一
+    assert normalize_url("https://EXAMPLE.com/A/B") == "example.com/A/B"
+    # 尾斜杠去除
+    assert normalize_url("https://example.com/path/") == "example.com/path"
+
+
+def test_normalize_url_strips_trailing_punct() -> None:
+    """去除 URL 后的中文/英文标点(句号/逗号/分号),防脚注正则捕获尾标点。"""
+    assert normalize_url("https://example.com/cash。") == "example.com/cash"
+    assert normalize_url("https://example.com/cash.") == "example.com/cash"
+
+
+def test_normalize_url_keeps_path_parens_strips_markdown_close() -> None:
+    """URL 内配对的括号保留(Wikipedia 消歧义),markdown 闭合 `)` 剥离。"""
+    # Wikipedia 消歧义 `Film_(2024)`:括号是 URL 的一部分,保留
+    assert normalize_url("https://en.wikipedia.org/wiki/Film_(2024)") == "en.wikipedia.org/wiki/Film_(2024)"
+    # markdown 闭合 `)`(被 urlsplit 误解析进 host):剥离
+    assert normalize_url("https://a.com)") == "a.com"
 
 
 def test_format_for_agent_answer_and_content() -> None:
